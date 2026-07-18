@@ -3,6 +3,31 @@ import { supabase } from '../supabaseClient.js'
 
 const ADMIN_CLAVE = import.meta.env.VITE_ADMIN_CLAVE || ''
 
+// Algunos sistemas de punto de venta antiguos exportan las cantidades como un
+// entero "sin decimales" (300) y le aplican un formato de celda en Excel que
+// lo muestra correctamente (3,00). Si leemos el valor crudo de la celda nos
+// queda todo multiplicado por 100. Por eso parseamos el texto tal como
+// Excel lo muestra (coma o punto decimal, según corresponda) en vez del
+// número crudo.
+function parseNumeroLocal(valor) {
+  if (typeof valor === 'number') return valor
+  const texto = String(valor ?? '').trim()
+  if (texto === '') return 0
+  let limpio = texto.replace(/[^0-9.,-]/g, '')
+  const ultimaComa = limpio.lastIndexOf(',')
+  const ultimoPunto = limpio.lastIndexOf('.')
+  if (ultimaComa > -1 && ultimoPunto > -1) {
+    // Trae ambos separadores: el último es el decimal, el otro es de miles.
+    limpio = ultimaComa > ultimoPunto
+      ? limpio.replace(/\./g, '').replace(',', '.')
+      : limpio.replace(/,/g, '')
+  } else if (ultimaComa > -1) {
+    limpio = limpio.replace(',', '.')
+  }
+  const n = Number(limpio)
+  return Number.isNaN(n) ? 0 : n
+}
+
 export default function AdminPage() {
   const [autenticado, setAutenticado] = useState(false)
   const [claveIngresada, setClaveIngresada] = useState('')
@@ -72,7 +97,9 @@ export default function AdminPage() {
       const XLSX = await import('xlsx')
       const wb = XLSX.read(evt.target.result, { type: 'array' })
       const sheet = wb.Sheets[wb.SheetNames[0]]
-      const json = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      // raw: false hace que cada celda venga como Excel la muestra (respetando
+      // el formato numérico), no como el número crudo guardado internamente.
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false })
       if (json.length === 0) {
         setMensaje('El archivo no tiene filas de datos.')
         return
@@ -101,7 +128,7 @@ export default function AdminPage() {
       const registros = filas
         .map((f) => ({
           descripcion: String(f[colDescripcion] ?? '').trim(),
-          inventario_sistema: Number(f[colInventario]) || 0,
+          inventario_sistema: parseNumeroLocal(f[colInventario]),
         }))
         .filter((r) => r.descripcion.length > 0)
 
