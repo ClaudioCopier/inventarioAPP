@@ -83,6 +83,38 @@ export default function WorkerPage() {
     return () => clearInterval(interval)
   }, [cargarDatos])
 
+  // Sincroniza en vivo: si otro trabajador guarda un conteo, se refleja al
+  // instante en esta pantalla (sin esperar el poll de 20s). Si esta misma
+  // fila se está editando localmente ahora mismo, no la pisamos.
+  useEffect(() => {
+    const canal = supabase
+      .channel('conteos-en-vivo')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conteos' },
+        (payload) => {
+          const productId = payload.new?.product_id ?? payload.old?.product_id
+          if (productId == null || pendientes.current[productId]) return
+          if (payload.eventType === 'DELETE') {
+            setRows((prev) =>
+              prev.map((r) => (r.id === productId ? { ...r, en_tienda: '', en_vitrina: '', en_cajas: '' } : r))
+            )
+            return
+          }
+          const c = payload.new
+          setRows((prev) =>
+            prev.map((r) =>
+              r.id === productId
+                ? { ...r, en_tienda: c.en_tienda ?? '', en_vitrina: c.en_vitrina ?? '', en_cajas: c.en_cajas ?? '' }
+                : r
+            )
+          )
+        }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(canal) }
+  }, [])
+
   function actualizarCampo(id, campo, valor) {
     const v = String(valor).replace('-', '') // no permitir cantidades negativas
     pendientes.current[id] = true

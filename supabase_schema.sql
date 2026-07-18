@@ -48,3 +48,7 @@ create policy "public all conteos" on conteos
 drop policy if exists "public all config" on config;
 create policy "public all config" on config
   for all using (true) with check (true);
+
+-- Activa la sincronización en vivo: cuando un trabajador guarda un conteo,
+-- los demás lo ven al instante sin esperar el refresco automático.
+alter publication supabase_realtime add table conteos;
