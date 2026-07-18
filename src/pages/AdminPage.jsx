@@ -48,9 +48,60 @@ export default function AdminPage() {
   const [filtroInput, setFiltroInput] = useState('')
   const [ronda, setRonda] = useState('')
 
+  // Sincronización directa con el POS
+  const [syncRequest, setSyncRequest] = useState(null) // última solicitud (o en curso)
+  const [pidiendoSync, setPidiendoSync] = useState(false)
+
   useEffect(() => {
-    if (autenticado) cargarEstado()
+    if (autenticado) {
+      cargarEstado()
+      cargarUltimaSync()
+    }
   }, [autenticado])
+
+  useEffect(() => {
+    if (!autenticado) return
+    const canal = supabase
+      .channel('sync-requests-admin')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sync_requests' },
+        (payload) => {
+          setSyncRequest((prev) => {
+            if (prev && payload.new && payload.new.id !== prev.id) return prev
+            return payload.new
+          })
+          if (payload.new?.status === 'done') cargarEstado()
+        }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(canal) }
+  }, [autenticado])
+
+  async function cargarUltimaSync() {
+    const { data } = await supabase
+      .from('sync_requests')
+      .select('*')
+      .order('solicitado_en', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (data) setSyncRequest(data)
+  }
+
+  async function pedirSincronizacion() {
+    setPidiendoSync(true)
+    const { data, error } = await supabase
+      .from('sync_requests')
+      .insert({ status: 'pending' })
+      .select()
+      .single()
+    setPidiendoSync(false)
+    if (error) {
+      setMensaje('No se pudo pedir la sincronización: ' + error.message)
+      return
+    }
+    setSyncRequest(data)
+  }
 
   async function cargarEstado() {
     const { count, error: countError } = await supabase.from('products').select('*', { count: 'exact', head: true })
@@ -226,8 +277,27 @@ export default function AdminPage() {
       </div>
 
       <div className="card">
-        <h3>1. Subir Excel</h3>
-        <p>Sube el archivo con todos los productos. Esto reemplaza la lista actual y reinicia los conteos.</p>
+        <h3>1. Actualizar inventario desde el sistema POS</h3>
+        <p>
+          Pide al sistema de la tienda que envíe el inventario actual directo a esta app. Actualiza cada
+          producto por su código, así los conteos que los trabajadores ya hicieron no se pierden.
+        </p>
+        <button className="btn btn-primary" onClick={pedirSincronizacion} disabled={pidiendoSync || syncRequest?.status === 'pending' || syncRequest?.status === 'running'}>
+          {pidiendoSync ? 'Enviando solicitud…' : 'Actualizar inventario desde el sistema POS'}
+        </button>
+        {syncRequest && (
+          <p className="hint" style={{ marginTop: 10 }}>
+            {syncRequest.status === 'pending' && 'Esperando a que la computadora de la tienda tome la solicitud…'}
+            {syncRequest.status === 'running' && 'Sincronizando con el sistema POS…'}
+            {syncRequest.status === 'done' && `Última sincronización: ${syncRequest.mensaje || 'completada'}`}
+            {syncRequest.status === 'error' && `Error en la última sincronización: ${syncRequest.mensaje}`}
+          </p>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>2. O subir un Excel a mano</h3>
+        <p>Alternativa si la computadora de la tienda está apagada. Esto reemplaza la lista actual y reinicia los conteos.</p>
         <div className="field">
           <label>Archivo Excel (.xlsx, .xls, .csv)</label>
           <input type="file" accept=".xlsx,.xls,.csv" onChange={manejarArchivo} />
@@ -276,7 +346,7 @@ export default function AdminPage() {
       </div>
 
       <div className="card">
-        <h3>2. Qué ve el trabajador</h3>
+        <h3>3. Qué ve el trabajador</h3>
         <p>Actualmente hay <strong>{totalProductos}</strong> productos cargados en el sistema.</p>
         <div className="row-inline">
           <div className="field">
@@ -305,7 +375,7 @@ export default function AdminPage() {
       </div>
 
       <div className="card">
-        <h3>3. Herramientas</h3>
+        <h3>4. Herramientas</h3>
         <div className="row-inline" style={{ marginBottom: 10 }}>
           <button className="btn btn-danger" onClick={reiniciarConteos}>Reiniciar conteos de trabajadores</button>
           <a className="btn btn-secondary" href="/trabajador" target="_blank" rel="noreferrer">Ver como trabajador</a>

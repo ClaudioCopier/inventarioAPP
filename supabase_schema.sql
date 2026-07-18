@@ -52,3 +52,28 @@ create policy "public all config" on config
 -- Activa la sincronización en vivo: cuando un trabajador guarda un conteo,
 -- los demás lo ven al instante sin esperar el refresco automático.
 alter publication supabase_realtime add table conteos;
+
+-- Sincronización de inventario directo desde el POS (AbarrotesPDV), en vez
+-- de subir un Excel a mano. "codigo" identifica cada producto de forma
+-- estable entre sincronizaciones, para actualizar sin perder los conteos
+-- de los trabajadores que ya estén en progreso.
+alter table products add column if not exists codigo text;
+alter table products drop constraint if exists products_codigo_key;
+alter table products add constraint products_codigo_key unique (codigo);
+
+create table if not exists sync_requests (
+  id bigint generated always as identity primary key,
+  status text not null default 'pending', -- pending | running | done | error
+  solicitado_en timestamptz default now(),
+  completado_en timestamptz,
+  productos_actualizados int,
+  mensaje text
+);
+
+alter table sync_requests enable row level security;
+
+drop policy if exists "public all sync_requests" on sync_requests;
+create policy "public all sync_requests" on sync_requests
+  for all using (true) with check (true);
+
+alter publication supabase_realtime add table sync_requests;
