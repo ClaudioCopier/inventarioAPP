@@ -68,27 +68,22 @@ export default function ReporteCard({ reporte: r, onError }) {
               Descuadrados ({faltantes + sobrantes})
             </button>
           </div>
+          {/* Vista rápida para análisis en pantalla: solo lo esencial.
+              El detalle completo (sistema/tienda/cajas/vitrina) sigue
+              disponible en el Excel exportado. */}
           <div className="tabla-scroll">
             <table className="table-preview">
               <thead>
                 <tr>
                   <th>Descripción</th>
-                  <th>Sistema</th>
-                  <th>Tienda</th>
-                  <th>Cajas</th>
-                  <th>Vitrina</th>
-                  <th>Estado</th>
-                  <th>Trabajadores</th>
+                  <th>Descuadre</th>
+                  <th>Trabajadores a cargo</th>
                 </tr>
               </thead>
               <tbody>
                 {filasFiltradas.map((f, i) => (
                   <tr key={i}>
                     <td>{f.descripcion}</td>
-                    <td>{f.inventario_sistema}</td>
-                    <td>{f.en_tienda}</td>
-                    <td>{f.en_cajas}</td>
-                    <td>{f.en_vitrina}</td>
                     <td>{f.estado}</td>
                     <td>{(f.trabajadores || []).join(', ')}</td>
                   </tr>

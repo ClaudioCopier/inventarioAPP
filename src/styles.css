@@ -296,15 +296,17 @@ p { margin: 0 0 12px; color: var(--ink-soft); }
 }
 .table-preview th { background: var(--bg); }
 
-/* Envuelve tablas anchas (reportes) para que hagan scroll horizontal propio
-   en celular, en vez de romper el ancho de toda la página. */
+/* Envuelve la tabla del reporte para que, si algún contenido llega a ser
+   más ancho que la pantalla (nombres de trabajadores muy largos, etc.),
+   haga scroll horizontal propio en vez de romper el ancho de la página.
+   Ya no fuerza un ancho mínimo: con las 3 columnas del resumen rápido
+   (Descripción/Descuadre/Trabajadores) entra normalmente en un celular. */
 .tabla-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   margin: 0 -4px;
   padding: 0 4px;
 }
-.tabla-scroll .table-preview { min-width: 640px; }
 
 .divider { height: 1px; background: var(--line); margin: 16px 0; border: none; }
 
