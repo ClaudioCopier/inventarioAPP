@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 
 const ADMIN_CLAVE = import.meta.env.VITE_ADMIN_CLAVE || ''
@@ -40,7 +40,9 @@ export default function AdminPage() {
   const [colInventario, setColInventario] = useState('')
   const [nombreArchivo, setNombreArchivo] = useState('')
   const [subiendo, setSubiendo] = useState(false)
+  const subiendoRef = useRef(false)
   const [mensaje, setMensaje] = useState('')
+  const [vaciando, setVaciando] = useState(false)
 
   // Current state from DB
   const [totalProductos, setTotalProductos] = useState(0)
@@ -273,6 +275,13 @@ export default function AdminPage() {
       setMensaje('Selecciona la columna de descripción y la de inventario.')
       return
     }
+    // Guarda extra contra doble clic o doble envío: setSubiendo(true) es
+    // asíncrono (React lo aplica en el próximo render), así que si el botón
+    // no alcanza a deshabilitarse a tiempo, dos subidas podían correr en
+    // paralelo y las dos sobrevivían (cada una borraba solo la foto de
+    // productos que había ANTES de sí misma, no la del otro envío).
+    if (subiendoRef.current) return
+    subiendoRef.current = true
     setSubiendo(true)
     setMensaje('')
     try {
@@ -317,6 +326,7 @@ export default function AdminPage() {
     } catch (err) {
       setMensaje('Error al subir: ' + err.message + '. Tus productos anteriores siguen intactos, puedes intentarlo de nuevo.')
     } finally {
+      subiendoRef.current = false
       setSubiendo(false)
     }
   }
@@ -332,6 +342,19 @@ export default function AdminPage() {
     }
     setFiltroActual(filtroInput)
     setMensaje('Filtro publicado. Los trabajadores lo verán al refrescar.')
+  }
+
+  async function vaciarProductos() {
+    if (!confirm('¿Vaciar TODOS los productos cargados? Esto borra también sus conteos. No se puede deshacer.')) return
+    setVaciando(true)
+    const { error } = await supabase.from('products').delete().neq('id', 0)
+    setVaciando(false)
+    if (error) {
+      setMensaje('Error al vaciar productos: ' + error.message)
+      return
+    }
+    setMensaje('Productos vaciados.')
+    cargarEstado()
   }
 
   async function reiniciarConteos() {
@@ -539,8 +562,14 @@ export default function AdminPage() {
         <h3>5. Herramientas</h3>
         <div className="row-inline" style={{ marginBottom: 10 }}>
           <button className="btn btn-danger" onClick={reiniciarConteos}>Reiniciar conteos de trabajadores</button>
+          <button className="btn btn-danger" onClick={vaciarProductos} disabled={vaciando}>
+            {vaciando ? 'Vaciando…' : 'Vaciar productos'}
+          </button>
           <a className="btn btn-secondary" href="/trabajador" target="_blank" rel="noreferrer">Ver como trabajador</a>
         </div>
+        <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
+          "Vaciar productos" borra todo lo cargado (por Excel o por el POS) — útil si una subida se duplicó o quieres empezar de cero.
+        </p>
         <p className="hint">Comparte este enlace con los trabajadores:</p>
         <div className="link-block">{typeof window !== 'undefined' ? window.location.origin + '/trabajador' : '/trabajador'}</div>
       </div>
