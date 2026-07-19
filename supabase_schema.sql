@@ -77,3 +77,57 @@ create policy "public all sync_requests" on sync_requests
   for all using (true) with check (true);
 
 alter publication supabase_realtime add table sync_requests;
+
+-- Login básico de trabajadores (nombre + clave), para saber quién contó
+-- qué y quién cerró cada ronda de inventario.
+create table if not exists trabajadores (
+  id bigint generated always as identity primary key,
+  nombre text not null unique,
+  clave_hash text not null,
+  creado_en timestamptz default now()
+);
+
+-- Registro de cada guardado de conteo, con el trabajador que lo hizo.
+-- Se usa para armar el reporte final ("qué trabajadores actualizaron cada
+-- producto") y la lista de participantes de la ronda.
+create table if not exists conteo_log (
+  id bigint generated always as identity primary key,
+  product_id bigint references products(id) on delete cascade,
+  trabajador_nombre text not null,
+  en_tienda numeric,
+  en_vitrina numeric,
+  en_cajas numeric,
+  actualizado_en timestamptz default now()
+);
+
+-- Reportes generados al presionar "Finalizar inventario": una foto fija
+-- de cómo quedó todo, para que el admin la pueda ver después aunque los
+-- conteos ya se hayan limpiado para la siguiente ronda.
+create table if not exists reportes_inventario (
+  id bigint generated always as identity primary key,
+  ronda text,
+  cerrado_por text not null,
+  cerrado_en timestamptz default now(),
+  participantes jsonb not null default '[]',
+  resumen jsonb not null default '[]'
+);
+
+alter table trabajadores enable row level security;
+alter table conteo_log enable row level security;
+alter table reportes_inventario enable row level security;
+
+drop policy if exists "public all trabajadores" on trabajadores;
+create policy "public all trabajadores" on trabajadores
+  for all using (true) with check (true);
+
+drop policy if exists "public all conteo_log" on conteo_log;
+create policy "public all conteo_log" on conteo_log
+  for all using (true) with check (true);
+
+drop policy if exists "public all reportes_inventario" on reportes_inventario;
+create policy "public all reportes_inventario" on reportes_inventario
+  for all using (true) with check (true);
+
+-- Para que al presionar "Finalizar inventario" todos los trabajadores
+-- conectados se enteren al instante y se cierre su sesión.
+alter publication supabase_realtime add table reportes_inventario;

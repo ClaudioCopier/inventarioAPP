@@ -52,12 +52,112 @@ export default function AdminPage() {
   const [syncRequest, setSyncRequest] = useState(null) // última solicitud (o en curso)
   const [pidiendoSync, setPidiendoSync] = useState(false)
 
+  // Reportes de inventarios finalizados
+  const [reportes, setReportes] = useState([])
+  const [reporteAbierto, setReporteAbierto] = useState(null)
+  const [exportandoId, setExportandoId] = useState(null)
+
   useEffect(() => {
     if (autenticado) {
       cargarEstado()
       cargarUltimaSync()
+      cargarReportes()
     }
   }, [autenticado])
+
+  useEffect(() => {
+    if (!autenticado) return
+    const canal = supabase
+      .channel('reportes-admin')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'reportes_inventario' },
+        () => { cargarReportes(); cargarEstado() }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(canal) }
+  }, [autenticado])
+
+  async function cargarReportes() {
+    const { data } = await supabase
+      .from('reportes_inventario')
+      .select('*')
+      .order('cerrado_en', { ascending: false })
+      .limit(20)
+    setReportes(data || [])
+  }
+
+  async function exportarReporte(reporte) {
+    setExportandoId(reporte.id)
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      const hoja = wb.addWorksheet('Reporte')
+      hoja.columns = [
+        { header: 'Descripción', key: 'descripcion', width: 40 },
+        { header: 'Inventario sistema', key: 'inventario_sistema', width: 18 },
+        { header: 'En tienda', key: 'en_tienda', width: 12 },
+        { header: 'En cajas', key: 'en_cajas', width: 12 },
+        { header: 'En vitrina', key: 'en_vitrina', width: 12 },
+        { header: 'Estado', key: 'estado', width: 16 },
+        { header: 'Trabajadores', key: 'trabajadores', width: 30 },
+      ]
+      hoja.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F4F3F' } }
+      hoja.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+
+      const colorPorEstado = (estado) => {
+        if (estado === 'Cuadrado') return 'FFEAF7ED'
+        if (estado.startsWith('Faltan')) return 'FFFDECEC'
+        return 'FFFFF4D9'
+      }
+
+      for (const fila of reporte.resumen || []) {
+        const row = hoja.addRow({
+          descripcion: fila.descripcion,
+          inventario_sistema: fila.inventario_sistema,
+          en_tienda: fila.en_tienda,
+          en_cajas: fila.en_cajas,
+          en_vitrina: fila.en_vitrina,
+          estado: fila.estado,
+          trabajadores: (fila.trabajadores || []).join(', '),
+        })
+        row.eachCell((cell) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorPorEstado(fila.estado) } }
+          cell.border = { bottom: { style: 'thin', color: { argb: 'FFDDDDDD' } } }
+        })
+      }
+
+      const resumenHoja = wb.addWorksheet('Resumen')
+      resumenHoja.columns = [{ header: '', key: 'k', width: 28 }, { header: '', key: 'v', width: 40 }]
+      const cuadrados = (reporte.resumen || []).filter((f) => f.estado === 'Cuadrado').length
+      const faltantes = (reporte.resumen || []).filter((f) => f.estado.startsWith('Faltan')).length
+      const sobrantes = (reporte.resumen || []).filter((f) => f.estado.startsWith('Sobran')).length
+      resumenHoja.addRows([
+        { k: 'Ronda', v: reporte.ronda || '(sin nombre)' },
+        { k: 'Cerrado por', v: reporte.cerrado_por },
+        { k: 'Cerrado en', v: new Date(reporte.cerrado_en).toLocaleString('es-CL') },
+        { k: 'Participantes', v: (reporte.participantes || []).join(', ') },
+        { k: 'Productos cuadrados', v: cuadrados },
+        { k: 'Productos con faltantes', v: faltantes },
+        { k: 'Productos con sobrantes', v: sobrantes },
+      ])
+      resumenHoja.getColumn(1).font = { bold: true }
+
+      const buffer = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const nombreRonda = (reporte.ronda || 'reporte').replace(/[^a-z0-9]+/gi, '_')
+      a.href = url
+      a.download = `inventario_${nombreRonda}_${reporte.id}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setMensaje('Error al exportar: ' + err.message)
+    } finally {
+      setExportandoId(null)
+    }
+  }
 
   useEffect(() => {
     if (!autenticado) return
@@ -375,7 +475,68 @@ export default function AdminPage() {
       </div>
 
       <div className="card">
-        <h3>4. Herramientas</h3>
+        <h3>4. Reportes de inventarios finalizados</h3>
+        {reportes.length === 0 && <p className="hint">Todavía no se ha finalizado ningún inventario.</p>}
+        {reportes.map((r) => {
+          const cuadrados = (r.resumen || []).filter((f) => f.estado === 'Cuadrado').length
+          const faltantes = (r.resumen || []).filter((f) => f.estado.startsWith('Faltan')).length
+          const sobrantes = (r.resumen || []).filter((f) => f.estado.startsWith('Sobran')).length
+          const abierto = reporteAbierto === r.id
+          return (
+            <div key={r.id} className="card" style={{ marginBottom: 10 }}>
+              <div className="row-inline" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <strong>{r.ronda || '(sin nombre)'}</strong>
+                  <p className="hint" style={{ margin: 0 }}>
+                    Cerrado por {r.cerrado_por} el {new Date(r.cerrado_en).toLocaleString('es-CL')} · {r.resumen?.length || 0} productos ·{' '}
+                    {cuadrados} cuadrados, {faltantes} con faltantes, {sobrantes} con sobrantes
+                  </p>
+                  <p className="hint" style={{ margin: 0 }}>Participantes: {(r.participantes || []).join(', ') || '—'}</p>
+                </div>
+                <div className="row-inline" style={{ gap: 8 }}>
+                  <button className="btn btn-ghost" onClick={() => setReporteAbierto(abierto ? null : r.id)}>
+                    {abierto ? 'Ocultar' : 'Ver detalle'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => exportarReporte(r)} disabled={exportandoId === r.id}>
+                    {exportandoId === r.id ? 'Exportando…' : 'Exportar a Excel'}
+                  </button>
+                </div>
+              </div>
+              {abierto && (
+                <table className="table-preview" style={{ marginTop: 10 }}>
+                  <thead>
+                    <tr>
+                      <th>Descripción</th>
+                      <th>Sistema</th>
+                      <th>Tienda</th>
+                      <th>Cajas</th>
+                      <th>Vitrina</th>
+                      <th>Estado</th>
+                      <th>Trabajadores</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(r.resumen || []).map((f, i) => (
+                      <tr key={i}>
+                        <td>{f.descripcion}</td>
+                        <td>{f.inventario_sistema}</td>
+                        <td>{f.en_tienda}</td>
+                        <td>{f.en_cajas}</td>
+                        <td>{f.en_vitrina}</td>
+                        <td>{f.estado}</td>
+                        <td>{(f.trabajadores || []).join(', ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="card">
+        <h3>5. Herramientas</h3>
         <div className="row-inline" style={{ marginBottom: 10 }}>
           <button className="btn btn-danger" onClick={reiniciarConteos}>Reiniciar conteos de trabajadores</button>
           <a className="btn btn-secondary" href="/trabajador" target="_blank" rel="noreferrer">Ver como trabajador</a>
