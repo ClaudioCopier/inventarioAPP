@@ -58,6 +58,12 @@ export default function AdminPage() {
   const [reportes, setReportes] = useState([])
   const [reporteAbierto, setReporteAbierto] = useState(null)
   const [exportandoId, setExportandoId] = useState(null)
+  const [filtroDetalle, setFiltroDetalle] = useState('todo') // todo | falta | sobra | descuadrados
+
+  function alternarReporte(id) {
+    setReporteAbierto((prev) => (prev === id ? null : id))
+    setFiltroDetalle('todo')
+  }
 
   useEffect(() => {
     if (autenticado) {
@@ -505,6 +511,12 @@ export default function AdminPage() {
           const faltantes = (r.resumen || []).filter((f) => f.estado.startsWith('Faltan')).length
           const sobrantes = (r.resumen || []).filter((f) => f.estado.startsWith('Sobran')).length
           const abierto = reporteAbierto === r.id
+          const filasFiltradas = (r.resumen || []).filter((f) => {
+            if (filtroDetalle === 'falta') return f.estado.startsWith('Faltan')
+            if (filtroDetalle === 'sobra') return f.estado.startsWith('Sobran')
+            if (filtroDetalle === 'descuadrados') return f.estado !== 'Cuadrado'
+            return true
+          })
           return (
             <div key={r.id} className="card" style={{ marginBottom: 10 }}>
               <div className="row-inline" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
@@ -517,7 +529,7 @@ export default function AdminPage() {
                   <p className="hint" style={{ margin: 0 }}>Participantes: {(r.participantes || []).join(', ') || '—'}</p>
                 </div>
                 <div className="row-inline" style={{ gap: 8 }}>
-                  <button className="btn btn-ghost" onClick={() => setReporteAbierto(abierto ? null : r.id)}>
+                  <button className="btn btn-ghost" onClick={() => alternarReporte(r.id)}>
                     {abierto ? 'Ocultar' : 'Ver detalle'}
                   </button>
                   <button className="btn btn-secondary" onClick={() => exportarReporte(r)} disabled={exportandoId === r.id}>
@@ -526,32 +538,50 @@ export default function AdminPage() {
                 </div>
               </div>
               {abierto && (
-                <table className="table-preview" style={{ marginTop: 10 }}>
-                  <thead>
-                    <tr>
-                      <th>Descripción</th>
-                      <th>Sistema</th>
-                      <th>Tienda</th>
-                      <th>Cajas</th>
-                      <th>Vitrina</th>
-                      <th>Estado</th>
-                      <th>Trabajadores</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(r.resumen || []).map((f, i) => (
-                      <tr key={i}>
-                        <td>{f.descripcion}</td>
-                        <td>{f.inventario_sistema}</td>
-                        <td>{f.en_tienda}</td>
-                        <td>{f.en_cajas}</td>
-                        <td>{f.en_vitrina}</td>
-                        <td>{f.estado}</td>
-                        <td>{(f.trabajadores || []).join(', ')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <>
+                  <div className="row-inline" style={{ marginTop: 12, marginBottom: 10 }}>
+                    <button className={`btn ${filtroDetalle === 'todo' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFiltroDetalle('todo')}>
+                      Todo ({r.resumen?.length || 0})
+                    </button>
+                    <button className={`btn ${filtroDetalle === 'falta' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFiltroDetalle('falta')}>
+                      Faltan ({faltantes})
+                    </button>
+                    <button className={`btn ${filtroDetalle === 'sobra' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFiltroDetalle('sobra')}>
+                      Sobran ({sobrantes})
+                    </button>
+                    <button className={`btn ${filtroDetalle === 'descuadrados' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setFiltroDetalle('descuadrados')}>
+                      Descuadrados ({faltantes + sobrantes})
+                    </button>
+                  </div>
+                  <div className="tabla-scroll">
+                    <table className="table-preview">
+                      <thead>
+                        <tr>
+                          <th>Descripción</th>
+                          <th>Sistema</th>
+                          <th>Tienda</th>
+                          <th>Cajas</th>
+                          <th>Vitrina</th>
+                          <th>Estado</th>
+                          <th>Trabajadores</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filasFiltradas.map((f, i) => (
+                          <tr key={i}>
+                            <td>{f.descripcion}</td>
+                            <td>{f.inventario_sistema}</td>
+                            <td>{f.en_tienda}</td>
+                            <td>{f.en_cajas}</td>
+                            <td>{f.en_vitrina}</td>
+                            <td>{f.estado}</td>
+                            <td>{(f.trabajadores || []).join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           )
@@ -565,7 +595,14 @@ export default function AdminPage() {
           <button className="btn btn-danger" onClick={vaciarProductos} disabled={vaciando}>
             {vaciando ? 'Vaciando…' : 'Vaciar productos'}
           </button>
-          <a className="btn btn-secondary" href="/trabajador" target="_blank" rel="noreferrer">Ver como trabajador</a>
+          <a
+            className="btn btn-secondary"
+            href={`/trabajador?admin=${encodeURIComponent(ADMIN_CLAVE)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Ver como trabajador
+          </a>
         </div>
         <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
           "Vaciar productos" borra todo lo cargado (por Excel o por el POS) — útil si una subida se duplicó o quieres empezar de cero.

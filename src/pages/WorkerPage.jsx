@@ -4,6 +4,8 @@ import { supabase } from '../supabaseClient.js'
 const POLL_MS = 20000
 const SAVE_DEBOUNCE_MS = 600
 const SESION_KEY = 'trabajador_sesion'
+const ADMIN_CLAVE = import.meta.env.VITE_ADMIN_CLAVE || ''
+const NOMBRE_RESERVADO = 'admin'
 
 function calcularFaltante(row) {
   const usado = (Number(row.en_tienda) || 0) + (Number(row.en_vitrina) || 0) + (Number(row.en_cajas) || 0)
@@ -20,18 +22,36 @@ function leerSesion() {
 }
 
 function GateTrabajador({ onIngresar }) {
-  const [modo, setModo] = useState('entrar') // 'entrar' | 'crear'
+  const [modo, setModo] = useState('entrar') // 'entrar' | 'crear' | 'recuperar'
   const [nombre, setNombre] = useState('')
   const [clave, setClave] = useState('')
+  const [palabraRecuperacion, setPalabraRecuperacion] = useState('')
+  const [claveNueva, setClaveNueva] = useState('')
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState('')
+  const [aviso, setAviso] = useState('')
+
+  function cambiarModo(nuevoModo) {
+    setModo(nuevoModo)
+    setError('')
+    setAviso('')
+  }
 
   async function entrar(e) {
     e.preventDefault()
     setError('')
+    setAviso('')
     const nombreLimpio = nombre.trim()
     if (!nombreLimpio || !clave) {
       setError('Completa tu nombre y clave.')
+      return
+    }
+    if (modo === 'crear' && nombreLimpio.toLowerCase() === NOMBRE_RESERVADO) {
+      setError('Ese nombre está reservado, elige otro.')
+      return
+    }
+    if (modo === 'crear' && !palabraRecuperacion.trim()) {
+      setError('Elige también una palabra de recuperación, por si olvidas tu clave.')
       return
     }
     setCargando(true)
@@ -51,9 +71,10 @@ function GateTrabajador({ onIngresar }) {
           return
         }
         const claveHash = await bcrypt.hash(clave, 8)
+        const recuperacionHash = await bcrypt.hash(palabraRecuperacion.trim().toLowerCase(), 8)
         const { data: nuevo, error: insertError } = await supabase
           .from('trabajadores')
-          .insert({ nombre: nombreLimpio, clave_hash: claveHash })
+          .insert({ nombre: nombreLimpio, clave_hash: claveHash, recuperacion_hash: recuperacionHash })
           .select()
           .single()
         if (insertError) throw insertError
@@ -79,6 +100,80 @@ function GateTrabajador({ onIngresar }) {
     }
   }
 
+  async function recuperar(e) {
+    e.preventDefault()
+    setError('')
+    setAviso('')
+    const nombreLimpio = nombre.trim()
+    if (!nombreLimpio || !palabraRecuperacion.trim() || !claveNueva) {
+      setError('Completa tu nombre, tu palabra de recuperación y la nueva clave.')
+      return
+    }
+    setCargando(true)
+    try {
+      const bcrypt = (await import('bcryptjs')).default
+      const { data, error: dbError } = await supabase
+        .from('trabajadores')
+        .select('*')
+        .ilike('nombre', nombreLimpio)
+        .maybeSingle()
+      if (dbError) throw dbError
+      if (!data || !data.recuperacion_hash) {
+        setError('No existe una cuenta con ese nombre (o es una cuenta antigua sin palabra de recuperación configurada — pide al administrador que te cree una nueva).')
+        setCargando(false)
+        return
+      }
+      const coincide = await bcrypt.compare(palabraRecuperacion.trim().toLowerCase(), data.recuperacion_hash)
+      if (!coincide) {
+        setError('La palabra de recuperación no coincide.')
+        setCargando(false)
+        return
+      }
+      const claveHash = await bcrypt.hash(claveNueva, 8)
+      const { error: updateError } = await supabase.from('trabajadores').update({ clave_hash: claveHash }).eq('id', data.id)
+      if (updateError) throw updateError
+      setAviso('Clave actualizada. Ya puedes iniciar sesión con la nueva clave.')
+      setModo('entrar')
+      setClave('')
+      setPalabraRecuperacion('')
+      setClaveNueva('')
+    } catch (err) {
+      setError('Error: ' + err.message)
+    } finally {
+      setCargando(false)
+    }
+  }
+
+  if (modo === 'recuperar') {
+    return (
+      <div className="gate">
+        <form className="gate-card" onSubmit={recuperar}>
+          <h2>Recuperar clave</h2>
+          <p>Ingresa tu nombre, tu palabra de recuperación, y la clave nueva que quieras usar.</p>
+          <div className="field">
+            <label htmlFor="nombre-rec">Nombre</label>
+            <input id="nombre-rec" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus />
+          </div>
+          <div className="field">
+            <label htmlFor="palabra-rec">Palabra de recuperación</label>
+            <input id="palabra-rec" type="text" value={palabraRecuperacion} onChange={(e) => setPalabraRecuperacion(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="clave-nueva">Clave nueva</label>
+            <input id="clave-nueva" type="password" value={claveNueva} onChange={(e) => setClaveNueva(e.target.value)} />
+          </div>
+          {error && <div className="error-text">{error}</div>}
+          <button className="btn btn-primary" style={{ width: '100%' }} type="submit" disabled={cargando}>
+            {cargando ? 'Un momento…' : 'Cambiar clave'}
+          </button>
+          <button type="button" className="btn btn-ghost" style={{ width: '100%', marginTop: 8 }} onClick={() => cambiarModo('entrar')}>
+            Volver a iniciar sesión
+          </button>
+        </form>
+      </div>
+    )
+  }
+
   return (
     <div className="gate">
       <form className="gate-card" onSubmit={entrar}>
@@ -92,6 +187,13 @@ function GateTrabajador({ onIngresar }) {
           <label htmlFor="clave-trabajador">Clave</label>
           <input id="clave-trabajador" type="password" value={clave} onChange={(e) => setClave(e.target.value)} />
         </div>
+        {modo === 'crear' && (
+          <div className="field">
+            <label htmlFor="palabra-crear">Palabra de recuperación (por si olvidas tu clave)</label>
+            <input id="palabra-crear" type="text" value={palabraRecuperacion} onChange={(e) => setPalabraRecuperacion(e.target.value)} />
+          </div>
+        )}
+        {aviso && <p className="hint" style={{ color: 'var(--ok)' }}>{aviso}</p>}
         {error && <div className="error-text">{error}</div>}
         <button className="btn btn-primary" style={{ width: '100%' }} type="submit" disabled={cargando}>
           {cargando ? 'Un momento…' : modo === 'entrar' ? 'Entrar' : 'Crear cuenta'}
@@ -100,10 +202,15 @@ function GateTrabajador({ onIngresar }) {
           type="button"
           className="btn btn-ghost"
           style={{ width: '100%', marginTop: 8 }}
-          onClick={() => { setModo(modo === 'entrar' ? 'crear' : 'entrar'); setError('') }}
+          onClick={() => cambiarModo(modo === 'entrar' ? 'crear' : 'entrar')}
         >
           {modo === 'entrar' ? 'No tengo cuenta' : 'Ya tengo cuenta'}
         </button>
+        {modo === 'entrar' && (
+          <button type="button" className="btn btn-ghost" style={{ width: '100%', marginTop: 8 }} onClick={() => cambiarModo('recuperar')}>
+            ¿Olvidaste tu clave?
+          </button>
+        )}
       </form>
     </div>
   )
@@ -118,6 +225,8 @@ export default function WorkerPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const [finalizando, setFinalizando] = useState(false)
   const [inventarioCerrado, setInventarioCerrado] = useState(false)
+  const [filtrosActivos, setFiltrosActivos] = useState({ ok: true, bad: true, warn: true })
+  const [busqueda, setBusqueda] = useState('')
   const timers = useRef({})
   const savedFlags = useRef({})
   const pendientes = useRef({}) // ids con ediciones locales aún no confirmadas guardadas
@@ -132,6 +241,20 @@ export default function WorkerPage() {
     localStorage.removeItem(SESION_KEY)
     setSesion(null)
   }
+
+  // Entrada directa para el administrador (link "Ver como trabajador" del
+  // panel admin): sin pedir cuenta ni clave de trabajador, queda registrado
+  // como "admin". Nunca crea una fila real en la tabla trabajadores, así que
+  // el flujo de recuperación de clave no puede tocar esta identidad.
+  useEffect(() => {
+    if (sesion) return
+    const params = new URLSearchParams(window.location.search)
+    const claveAdmin = params.get('admin')
+    if (claveAdmin && ADMIN_CLAVE && claveAdmin === ADMIN_CLAVE) {
+      ingresar({ id: 'admin', nombre: NOMBRE_RESERVADO })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const cargarDatos = useCallback(async () => {
     setErrorMsg('')
@@ -250,7 +373,7 @@ export default function WorkerPage() {
   }, [sesion])
 
   function actualizarCampo(id, campo, valor) {
-    const v = String(valor).replace('-', '') // no permitir cantidades negativas
+    const v = String(valor).replace(/[^0-9]/g, '') // solo dígitos, nada de letras/signos
     pendientes.current[id] = true
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [campo]: v } : r)))
     if (timers.current[id]) clearTimeout(timers.current[id])
@@ -278,7 +401,6 @@ export default function WorkerPage() {
       return
     }
     // Registro de quién tocó este producto, para el reporte final.
-    // (Sin bloquear la UI del trabajador si esto llega a fallar.)
     await supabase.from('conteo_log').insert({ product_id: id, trabajador_nombre: sesion.nombre, ...valores })
 
     pendientes.current[id] = false
@@ -352,16 +474,31 @@ export default function WorkerPage() {
   const rowsRef = useRef([])
   useEffect(() => { rowsRef.current = rows || [] }, [rows])
 
+  function categoria(row) {
+    const f = calcularFaltante(row)
+    if (f === 0) return 'ok'
+    if (f > 0) return 'bad'
+    return 'warn'
+  }
+
   const resumenChips = (rows || []).reduce(
     (acc, r) => {
-      const f = calcularFaltante(r)
-      if (f === 0) acc.ok += 1
-      else if (f > 0) acc.faltan += 1
-      else acc.sobran += 1
+      acc[categoria(r)] += 1
       return acc
     },
-    { ok: 0, faltan: 0, sobran: 0 }
+    { ok: 0, bad: 0, warn: 0 }
   )
+
+  function alternarFiltro(cat) {
+    setFiltrosActivos((prev) => ({ ...prev, [cat]: !prev[cat] }))
+  }
+
+  const busquedaNormalizada = busqueda.trim().toLowerCase()
+  const rowsVisibles = (rows || []).filter((r) => {
+    if (!filtrosActivos[categoria(r)]) return false
+    if (busquedaNormalizada && !r.descripcion.toLowerCase().includes(busquedaNormalizada)) return false
+    return true
+  })
 
   if (inventarioCerrado) {
     return (
@@ -382,7 +519,7 @@ export default function WorkerPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page page-trabajador">
       <div className="topbar">
         <div>
           <div className="eyebrow">Trabajador — {sesion.nombre}</div>
@@ -401,10 +538,19 @@ export default function WorkerPage() {
 
       {!cargando && rows && rows.length > 0 && (
         <div className="summary-row">
-          <div className="chip ok"><div className="num">{resumenChips.ok}</div><div className="lbl">Cuadrados</div></div>
-          <div className="chip bad"><div className="num">{resumenChips.faltan}</div><div className="lbl">Con faltantes</div></div>
-          <div className="chip warn"><div className="num">{resumenChips.sobran}</div><div className="lbl">Con sobrantes</div></div>
+          <button className={`chip ok chip-filtro ${filtrosActivos.ok ? '' : 'apagado'}`} onClick={() => alternarFiltro('ok')}>
+            <div className="num">{resumenChips.ok}</div><div className="lbl">Cuadrados</div>
+          </button>
+          <button className={`chip bad chip-filtro ${filtrosActivos.bad ? '' : 'apagado'}`} onClick={() => alternarFiltro('bad')}>
+            <div className="num">{resumenChips.bad}</div><div className="lbl">Con faltantes</div>
+          </button>
+          <button className={`chip warn chip-filtro ${filtrosActivos.warn ? '' : 'apagado'}`} onClick={() => alternarFiltro('warn')}>
+            <div className="num">{resumenChips.warn}</div><div className="lbl">Con sobrantes</div>
+          </button>
         </div>
+      )}
+      {!cargando && rows && rows.length > 0 && (
+        <p className="hint" style={{ marginTop: -8 }}>Toca un bloque para ocultar/mostrar esa categoría.</p>
       )}
 
       {cargando && <div className="card"><p>Cargando productos…</p></div>}
@@ -426,8 +572,14 @@ export default function WorkerPage() {
             </p>
           </div>
 
-          <div className="product-list">
-            {rows.map((r) => {
+          {rowsVisibles.length === 0 && (
+            <div className="card empty-state">
+              <p>No hay productos que coincidan con el filtro o la búsqueda actual.</p>
+            </div>
+          )}
+
+          <div className="product-list product-list-con-buscador">
+            {rowsVisibles.map((r) => {
               const faltante = calcularFaltante(r)
               let claseEstado = 'ok'
               let texto = 'Cuadrado'
@@ -442,9 +594,9 @@ export default function WorkerPage() {
                     <div className="mini-field">
                       <label>En tienda</label>
                       <input
-                        type="number"
+                        type="text"
                         inputMode="numeric"
-                        min="0"
+                        pattern="[0-9]*"
                         value={r.en_tienda}
                         onChange={(e) => actualizarCampo(r.id, 'en_tienda', e.target.value)}
                         onBlur={() => guardarFila(r.id)}
@@ -453,9 +605,9 @@ export default function WorkerPage() {
                     <div className="mini-field">
                       <label>En vitrina</label>
                       <input
-                        type="number"
+                        type="text"
                         inputMode="numeric"
-                        min="0"
+                        pattern="[0-9]*"
                         value={r.en_vitrina}
                         onChange={(e) => actualizarCampo(r.id, 'en_vitrina', e.target.value)}
                         onBlur={() => guardarFila(r.id)}
@@ -464,9 +616,9 @@ export default function WorkerPage() {
                     <div className="mini-field">
                       <label>En cajas</label>
                       <input
-                        type="number"
+                        type="text"
                         inputMode="numeric"
-                        min="0"
+                        pattern="[0-9]*"
                         value={r.en_cajas}
                         onChange={(e) => actualizarCampo(r.id, 'en_cajas', e.target.value)}
                         onBlur={() => guardarFila(r.id)}
@@ -480,6 +632,15 @@ export default function WorkerPage() {
                 </div>
               )
             })}
+          </div>
+
+          <div className="buscador-fijo">
+            <input
+              type="text"
+              placeholder="Buscar producto por nombre…"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+            />
           </div>
         </>
       )}

@@ -84,6 +84,7 @@ create table if not exists trabajadores (
   id bigint generated always as identity primary key,
   nombre text not null unique,
   clave_hash text not null,
+  recuperacion_hash text,
   creado_en timestamptz default now()
 );
 
@@ -131,3 +132,7 @@ create policy "public all reportes_inventario" on reportes_inventario
 -- Para que al presionar "Finalizar inventario" todos los trabajadores
 -- conectados se enteren al instante y se cierre su sesión.
 alter publication supabase_realtime add table reportes_inventario;
+
+-- Recuperación de clave para trabajadores (no hay email en el sistema, así
+-- que se usa una "palabra de recuperación" definida al crear la cuenta).
+alter table trabajadores add column if not exists recuperacion_hash text;

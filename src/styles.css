@@ -173,6 +173,43 @@ p { margin: 0 0 12px; color: var(--ink-soft); }
 .chip.bad .num { color: var(--bad); }
 .chip.warn .num { color: var(--warn); }
 
+/* Chips que también son botones de filtro (WorkerPage, resumen de reporte) */
+.chip-filtro {
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.05s ease;
+  min-height: 44px;
+}
+.chip-filtro:active { transform: scale(0.98); }
+.chip-filtro.apagado { opacity: 0.35; }
+
+/* Barra de búsqueda fija en la parte inferior (WorkerPage) */
+.product-list-con-buscador { padding-bottom: 84px; }
+.buscador-fijo {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 16px rgba(30, 42, 34, 0.08);
+  z-index: 20;
+}
+.buscador-fijo input {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  display: block;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 16px;
+  background: var(--bg);
+  color: var(--ink);
+}
+.buscador-fijo input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* Product table (mobile-first stacked cards) */
 .product-list { display: flex; flex-direction: column; gap: 10px; }
 .product-card {
@@ -204,8 +241,9 @@ p { margin: 0 0 12px; color: var(--ink-soft); }
   margin-bottom: 4px;
   text-align: center;
 }
-.inputs-grid input[type="number"] {
+.inputs-grid input {
   width: 100%;
+  min-width: 0;
   padding: 10px 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -214,7 +252,7 @@ p { margin: 0 0 12px; color: var(--ink-soft); }
   font-variant-numeric: tabular-nums;
   -moz-appearance: textfield;
 }
-.inputs-grid input[type="number"]:focus {
+.inputs-grid input:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -257,6 +295,16 @@ p { margin: 0 0 12px; color: var(--ink-soft); }
   text-align: left;
 }
 .table-preview th { background: var(--bg); }
+
+/* Envuelve tablas anchas (reportes) para que hagan scroll horizontal propio
+   en celular, en vez de romper el ancho de toda la página. */
+.tabla-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.tabla-scroll .table-preview { min-width: 640px; }
 
 .divider { height: 1px; background: var(--line); margin: 16px 0; border: none; }
 
