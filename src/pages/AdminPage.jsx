@@ -270,6 +270,10 @@ export default function AdminPage() {
     }
     setFiltroActual(filtroInput)
     setMensaje('Filtro publicado. Los trabajadores lo verán al refrescar.')
+    // Al arrancar una ronda nueva, se pide de una vez el inventario más
+    // reciente del POS, para que quede congelado desde el momento en que
+    // los trabajadores empiezan a contar (ver tarjeta "1." para el estado).
+    pedirSincronizacion()
   }
 
   async function vaciarProductos() {
@@ -420,6 +424,10 @@ export default function AdminPage() {
           </div>
         </div>
         <button className="btn btn-primary" onClick={publicarFiltro}>Publicar filtro para trabajadores</button>
+        <p className="hint" style={{ marginTop: 10 }}>
+          Al publicar, también se pide el inventario más reciente del sistema POS (ver tarjeta 1) para que quede
+          congelado desde el arranque de la ronda.
+        </p>
         <p className="hint" style={{ marginTop: 10 }}>
           Filtro actualmente publicado: <strong>{filtroActual ? `"${filtroActual}"` : '(sin filtro, se muestran todos)'}</strong>
         </p>
