@@ -39,6 +39,7 @@ export default function AdminPage() {
   const [filas, setFilas] = useState([])
   const [colDescripcion, setColDescripcion] = useState('')
   const [colInventario, setColInventario] = useState('')
+  const [colCodigo, setColCodigo] = useState('')
   const [nombreArchivo, setNombreArchivo] = useState('')
   const [subiendo, setSubiendo] = useState(false)
   const subiendoRef = useRef(false)
@@ -191,8 +192,10 @@ export default function AdminPage() {
       // Adivinar columnas por nombre
       const guessDesc = cols.find((c) => /descrip/i.test(c)) || cols[0]
       const guessInv = cols.find((c) => /inventar|stock|existenc/i.test(c)) || cols[1] || cols[0]
+      const guessCod = cols.find((c) => /^c[oó]d(igo)?$|barra|barcode|\bean\b/i.test(c)) || ''
       setColDescripcion(guessDesc)
       setColInventario(guessInv)
+      setColCodigo(guessCod)
       setMensaje('')
     }
     reader.readAsArrayBuffer(file)
@@ -213,11 +216,21 @@ export default function AdminPage() {
     setSubiendo(true)
     setMensaje('')
     try {
+      // El código es opcional (no todos los Excel lo traen), pero si está
+      // disponible hay que guardarlo: es lo que permite que una sincronización
+      // del POS más adelante actualice estos mismos productos por código en
+      // vez de duplicarlos (ver agente-servidor/lib/inventario.js). Vacío se
+      // guarda como null, no como cadena vacía -- el unique constraint de
+      // "codigo" permite varios null, pero no varias cadenas vacías iguales.
       const registros = filas
-        .map((f) => ({
-          descripcion: String(f[colDescripcion] ?? '').trim(),
-          inventario_sistema: parseNumeroLocal(f[colInventario]),
-        }))
+        .map((f) => {
+          const codigoCrudo = colCodigo ? String(f[colCodigo] ?? '').trim() : ''
+          return {
+            descripcion: String(f[colDescripcion] ?? '').trim(),
+            inventario_sistema: parseNumeroLocal(f[colInventario]),
+            codigo: codigoCrudo.length > 0 ? codigoCrudo : null,
+          }
+        })
         .filter((r) => r.descripcion.length > 0)
 
       if (registros.length === 0) {
@@ -373,13 +386,27 @@ export default function AdminPage() {
                   {headers.map((h) => <option key={h} value={h}>{h}</option>)}
                 </select>
               </div>
+              <div className="field">
+                <label>Columna con el código de producto (opcional)</label>
+                <select value={colCodigo} onChange={(e) => setColCodigo(e.target.value)}>
+                  <option value="">(ninguna)</option>
+                  {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
             </div>
+            {!colCodigo && (
+              <p className="hint">
+                Sin columna de código, estos productos no van a poder actualizarse por sincronización con el POS
+                más adelante (se subirán bien igual, solo quedan sin ese dato).
+              </p>
+            )}
 
             <table className="table-preview">
               <thead>
                 <tr>
                   <th>{colDescripcion || 'Descripción'}</th>
                   <th>{colInventario || 'Inventario'}</th>
+                  {colCodigo && <th>{colCodigo}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -387,6 +414,7 @@ export default function AdminPage() {
                   <tr key={i}>
                     <td>{String(f[colDescripcion] ?? '')}</td>
                     <td>{String(f[colInventario] ?? '')}</td>
+                    {colCodigo && <td>{String(f[colCodigo] ?? '')}</td>}
                   </tr>
                 ))}
               </tbody>
