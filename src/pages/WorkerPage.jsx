@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
+import { verificarClaveAdmin } from '../lib/verificarClaveAdmin.js'
 
 const POLL_MS = 20000
 const SAVE_DEBOUNCE_MS = 600
 const SESION_KEY = 'trabajador_sesion'
-const ADMIN_CLAVE = import.meta.env.VITE_ADMIN_CLAVE || ''
 const NOMBRE_RESERVADO = 'admin'
 
 function calcularFaltante(row) {
@@ -250,9 +250,12 @@ export default function WorkerPage() {
     if (sesion) return
     const params = new URLSearchParams(window.location.search)
     const claveAdmin = params.get('admin')
-    if (claveAdmin && ADMIN_CLAVE && claveAdmin === ADMIN_CLAVE) {
-      ingresar({ id: 'admin', nombre: NOMBRE_RESERVADO })
-    }
+    if (!claveAdmin) return
+    // La clave del link (?admin=) se valida en el servidor, igual que el
+    // login normal -- no se compara contra ninguna clave embebida en el JS.
+    verificarClaveAdmin(claveAdmin).then((ok) => {
+      if (ok) ingresar({ id: 'admin', nombre: NOMBRE_RESERVADO })
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 import ReporteCard from '../components/ReporteCard.jsx'
-
-const ADMIN_CLAVE = import.meta.env.VITE_ADMIN_CLAVE || ''
+import { verificarClaveAdmin } from '../lib/verificarClaveAdmin.js'
 
 export default function HistorialReportesPage() {
   const [autenticado, setAutenticado] = useState(false)
@@ -14,7 +13,12 @@ export default function HistorialReportesPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const clave = params.get('clave')
-    if (clave && ADMIN_CLAVE && clave === ADMIN_CLAVE) setAutenticado(true)
+    if (!clave) return
+    // El bypass por URL (?clave=) se valida en el servidor, igual que el
+    // login normal -- no se compara contra ninguna clave embebida en el JS.
+    verificarClaveAdmin(clave).then((ok) => {
+      if (ok) setAutenticado(true)
+    })
   }, [])
 
   useEffect(() => {
@@ -34,13 +38,11 @@ export default function HistorialReportesPage() {
       })
   }, [autenticado])
 
-  function intentarLogin(e) {
+  async function intentarLogin(e) {
     e.preventDefault()
-    if (!ADMIN_CLAVE) {
-      setErrorClave('No se configuró VITE_ADMIN_CLAVE en el servidor. Revisa el archivo .env')
-      return
-    }
-    if (claveIngresada === ADMIN_CLAVE) {
+    setErrorClave('')
+    const ok = await verificarClaveAdmin(claveIngresada)
+    if (ok) {
       setAutenticado(true)
       setErrorClave('')
     } else {

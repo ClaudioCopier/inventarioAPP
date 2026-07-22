@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 import ReporteCard from '../components/ReporteCard.jsx'
 import { exportarInventarioExcel } from '../lib/exportarInventarioExcel.js'
-
-const ADMIN_CLAVE = import.meta.env.VITE_ADMIN_CLAVE || ''
+import { verificarClaveAdmin } from '../lib/verificarClaveAdmin.js'
 
 // Algunos sistemas de punto de venta antiguos exportan las cantidades como un
 // entero "sin decimales" (300) y le aplican un formato de celda en Excel que
@@ -155,13 +154,11 @@ export default function AdminPage() {
     }
   }
 
-  function intentarLogin(e) {
+  async function intentarLogin(e) {
     e.preventDefault()
-    if (!ADMIN_CLAVE) {
-      setErrorClave('No se configuró VITE_ADMIN_CLAVE en el servidor. Revisa el archivo .env')
-      return
-    }
-    if (claveIngresada === ADMIN_CLAVE) {
+    setErrorClave('')
+    const ok = await verificarClaveAdmin(claveIngresada)
+    if (ok) {
       setAutenticado(true)
       setErrorClave('')
     } else {
@@ -484,7 +481,7 @@ export default function AdminPage() {
         {reportes.length > 0 && (
           <a
             className="btn btn-secondary"
-            href={`/admin/historial?clave=${encodeURIComponent(ADMIN_CLAVE)}`}
+            href={`/admin/historial?clave=${encodeURIComponent(claveIngresada)}`}
             target="_blank"
             rel="noreferrer"
           >
@@ -505,7 +502,7 @@ export default function AdminPage() {
           </button>
           <a
             className="btn btn-secondary"
-            href={`/trabajador?admin=${encodeURIComponent(ADMIN_CLAVE)}`}
+            href={`/trabajador?admin=${encodeURIComponent(claveIngresada)}`}
             target="_blank"
             rel="noreferrer"
           >
