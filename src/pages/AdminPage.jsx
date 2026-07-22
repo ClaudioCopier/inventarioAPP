@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 import ReporteCard from '../components/ReporteCard.jsx'
+import { exportarInventarioExcel } from '../lib/exportarInventarioExcel.js'
 
 const ADMIN_CLAVE = import.meta.env.VITE_ADMIN_CLAVE || ''
 
@@ -45,6 +46,7 @@ export default function AdminPage() {
   const subiendoRef = useRef(false)
   const [mensaje, setMensaje] = useState('')
   const [vaciando, setVaciando] = useState(false)
+  const [exportando, setExportando] = useState(false)
 
   // Current state from DB
   const [totalProductos, setTotalProductos] = useState(0)
@@ -302,6 +304,18 @@ export default function AdminPage() {
     cargarEstado()
   }
 
+  async function exportarInventario() {
+    setExportando(true)
+    try {
+      const cantidad = await exportarInventarioExcel()
+      setMensaje(`Inventario exportado: ${cantidad} productos.`)
+    } catch (err) {
+      setMensaje('Error al exportar el inventario: ' + err.message)
+    } finally {
+      setExportando(false)
+    }
+  }
+
   async function reiniciarConteos() {
     if (!confirm('¿Reiniciar todos los conteos de los trabajadores a cero? Esta acción no se puede deshacer.')) return
     const { error } = await supabase.from('conteos').delete().neq('id', 0)
@@ -485,6 +499,9 @@ export default function AdminPage() {
           <button className="btn btn-danger" onClick={reiniciarConteos}>Reiniciar conteos de trabajadores</button>
           <button className="btn btn-danger" onClick={vaciarProductos} disabled={vaciando}>
             {vaciando ? 'Vaciando…' : 'Vaciar productos'}
+          </button>
+          <button className="btn btn-secondary" onClick={exportarInventario} disabled={exportando}>
+            {exportando ? 'Exportando…' : 'Exportar inventario a Excel'}
           </button>
           <a
             className="btn btn-secondary"
