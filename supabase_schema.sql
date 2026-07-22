@@ -136,3 +136,13 @@ alter publication supabase_realtime add table reportes_inventario;
 -- Recuperación de clave para trabajadores (no hay email en el sistema, así
 -- que se usa una "palabra de recuperación" definida al crear la cuenta).
 alter table trabajadores add column if not exists recuperacion_hash text;
+
+-- Columnas extra del catálogo del POS (precios, mínimo, departamento) --
+-- no se usan para el conteo en sí, se guardan de paso porque agente-servidor
+-- ya las lee al sincronizar, para que "Exportar inventario a Excel" en el
+-- panel admin pueda traer el mismo detalle completo que el Excel del POS.
+alter table products add column if not exists precio_costo numeric;
+alter table products add column if not exists precio_venta numeric;
+alter table products add column if not exists precio_mayoreo numeric;
+alter table products add column if not exists inv_minimo numeric;
+alter table products add column if not exists departamento text;
