@@ -56,7 +56,9 @@ Luego crea un repositorio nuevo en [github.com/new](https://github.com/new) y si
    |---|---|
    | `VITE_SUPABASE_URL` | el Project URL de Supabase |
    | `VITE_SUPABASE_ANON_KEY` | el anon public key de Supabase |
-   | `VITE_ADMIN_CLAVE` | una clave que tú inventes, ej: `puntoverde2026` |
+   | `SUPABASE_SERVICE_ROLE_KEY` | la clave "service_role" de Supabase (Project Settings → API Keys) -- server-only, nunca con prefijo `VITE_` |
+
+   El acceso de trabajadores y admin usa cuentas reales de Supabase Auth (no una clave de admin por variable de entorno) -- ver `SEGURIDAD_PENDIENTE.md` para el detalle completo y cómo crear la primera cuenta de admin.
 
 5. Dale a **Deploy**. En un par de minutos tendrás una URL tipo `https://inventario-punto-verde.vercel.app`.
 
