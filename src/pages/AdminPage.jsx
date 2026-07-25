@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 import ReporteCard from '../components/ReporteCard.jsx'
 import { exportarInventarioExcel } from '../lib/exportarInventarioExcel.js'
-import { verificarClaveAdmin } from '../lib/verificarClaveAdmin.js'
+
+const ADMIN_EMAIL = 'admin@inventario.local'
 
 // Algunos sistemas de punto de venta antiguos exportan las cantidades como un
 // entero "sin decimales" (300) y le aplican un formato de celda en Excel que
@@ -60,6 +61,14 @@ export default function AdminPage() {
   // Reportes de inventarios finalizados (solo los últimos 5 acá; el
   // historial completo vive en /admin/historial y nunca se borra).
   const [reportes, setReportes] = useState([])
+
+  // Si ya había una sesión real de Supabase Auth (mismo navegador, no se
+  // cerró sesión), entra directo sin pedir la clave de nuevo.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email === ADMIN_EMAIL) setAutenticado(true)
+    })
+  }, [])
 
   useEffect(() => {
     if (autenticado) {
@@ -157,13 +166,47 @@ export default function AdminPage() {
   async function intentarLogin(e) {
     e.preventDefault()
     setErrorClave('')
-    const ok = await verificarClaveAdmin(claveIngresada)
-    if (ok) {
+    const { error } = await supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: claveIngresada })
+    if (!error) {
       setAutenticado(true)
       setErrorClave('')
     } else {
       setErrorClave('Clave incorrecta')
     }
+  }
+
+  async function cerrarSesion() {
+    await supabase.auth.signOut()
+    setAutenticado(false)
+  }
+
+  // Respaldo para trabajadores que nunca configuraron palabra de
+  // recuperación (no pueden usar "Recuperar clave" solos): el admin les
+  // asigna una clave inicial a mano, vía una función server-side que valida
+  // que quien llama de verdad tenga sesión de admin.
+  async function asignarClaveInicial() {
+    const nombreTrabajador = prompt('Nombre del trabajador (tal como aparece en su cuenta):')
+    if (!nombreTrabajador) return
+    const claveNueva = prompt(`Clave inicial para "${nombreTrabajador}":`)
+    if (!claveNueva) return
+
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setMensaje('Tu sesión de administrador expiró, volvé a entrar.')
+      return
+    }
+
+    const resp = await fetch('/api/crear-clave-inicial', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accessToken: session.access_token, nombre: nombreTrabajador, claveNueva }),
+    })
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok || !data.ok) {
+      setMensaje('Error al asignar clave: ' + (data.error || 'desconocido'))
+      return
+    }
+    setMensaje(`Clave inicial asignada a "${nombreTrabajador}".`)
   }
 
   function manejarArchivo(e) {
@@ -353,6 +396,7 @@ export default function AdminPage() {
           <div className="eyebrow">Administrador</div>
           <h1>Panel de inventario</h1>
         </div>
+        <button className="btn btn-ghost" onClick={cerrarSesion}>Cerrar sesión</button>
       </div>
 
       <div className="card">
@@ -508,9 +552,13 @@ export default function AdminPage() {
           >
             Ver como trabajador
           </a>
+          <button className="btn btn-secondary" onClick={asignarClaveInicial}>
+            Asignar clave inicial a un trabajador
+          </button>
         </div>
         <p className="hint" style={{ marginTop: -4, marginBottom: 10 }}>
           "Vaciar productos" borra todo lo cargado (por Excel o por el POS) — útil si una subida se duplicó o quieres empezar de cero.
+          "Asignar clave inicial" es para trabajadores que nunca configuraron una palabra de recuperación y no pueden usar "¿Olvidaste tu clave?" solos.
         </p>
         <p className="hint">Comparte este enlace con los trabajadores:</p>
         <div className="link-block">{typeof window !== 'undefined' ? window.location.origin + '/trabajador' : '/trabajador'}</div>

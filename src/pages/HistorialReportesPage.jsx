@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 import ReporteCard from '../components/ReporteCard.jsx'
-import { verificarClaveAdmin } from '../lib/verificarClaveAdmin.js'
+
+const ADMIN_EMAIL = 'admin@inventario.local'
 
 export default function HistorialReportesPage() {
   const [autenticado, setAutenticado] = useState(false)
@@ -10,14 +11,19 @@ export default function HistorialReportesPage() {
   const [reportes, setReportes] = useState(null) // null = cargando
   const [mensaje, setMensaje] = useState('')
 
+  // Si ya había una sesión real de admin (mismo navegador), entra directo.
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email === ADMIN_EMAIL) setAutenticado(true)
+    })
+  }, [])
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const clave = params.get('clave')
     if (!clave) return
-    // El bypass por URL (?clave=) se valida en el servidor, igual que el
-    // login normal -- no se compara contra ninguna clave embebida en el JS.
-    verificarClaveAdmin(clave).then((ok) => {
-      if (ok) setAutenticado(true)
+    supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: clave }).then(({ error }) => {
+      if (!error) setAutenticado(true)
     })
   }, [])
 
@@ -41,8 +47,8 @@ export default function HistorialReportesPage() {
   async function intentarLogin(e) {
     e.preventDefault()
     setErrorClave('')
-    const ok = await verificarClaveAdmin(claveIngresada)
-    if (ok) {
+    const { error } = await supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: claveIngresada })
+    if (!error) {
       setAutenticado(true)
       setErrorClave('')
     } else {

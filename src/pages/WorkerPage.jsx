@@ -1,24 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
-import { verificarClaveAdmin } from '../lib/verificarClaveAdmin.js'
+import { emailSintetico } from '../lib/emailSintetico.js'
 
 const POLL_MS = 20000
 const SAVE_DEBOUNCE_MS = 600
-const SESION_KEY = 'trabajador_sesion'
 const NOMBRE_RESERVADO = 'admin'
+const ADMIN_EMAIL = 'admin@inventario.local'
 
 function calcularFaltante(row) {
   const usado = (Number(row.en_tienda) || 0) + (Number(row.en_vitrina) || 0) + (Number(row.en_cajas) || 0)
   return (Number(row.inventario_sistema) || 0) - usado
-}
-
-function leerSesion() {
-  try {
-    const raw = localStorage.getItem(SESION_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
 }
 
 function GateTrabajador({ onIngresar }) {
@@ -56,42 +47,38 @@ function GateTrabajador({ onIngresar }) {
     }
     setCargando(true)
     try {
-      const bcrypt = (await import('bcryptjs')).default
-      const { data, error: dbError } = await supabase
-        .from('trabajadores')
-        .select('*')
-        .ilike('nombre', nombreLimpio)
-        .maybeSingle()
-      if (dbError) throw dbError
+      const email = emailSintetico(nombreLimpio)
 
       if (modo === 'crear') {
-        if (data) {
-          setError('Ya existe una cuenta con ese nombre. Usa "Iniciar sesión".')
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password: clave,
+          options: { data: { nombre: nombreLimpio } },
+        })
+        if (signUpError) {
+          if (/already registered|already been registered/i.test(signUpError.message)) {
+            setError('Ya existe una cuenta con ese nombre. Usa "Iniciar sesión".')
+          } else {
+            setError('Error: ' + signUpError.message)
+          }
           setCargando(false)
           return
         }
-        const claveHash = await bcrypt.hash(clave, 8)
+        // Guarda la palabra de recuperación en el perfil recién creado (la
+        // fila ya existe: el trigger de la base la crea antes de que signUp
+        // termine de responder).
+        const bcrypt = (await import('bcryptjs')).default
         const recuperacionHash = await bcrypt.hash(palabraRecuperacion.trim().toLowerCase(), 8)
-        const { data: nuevo, error: insertError } = await supabase
-          .from('trabajadores')
-          .insert({ nombre: nombreLimpio, clave_hash: claveHash, recuperacion_hash: recuperacionHash })
-          .select()
-          .single()
-        if (insertError) throw insertError
-        onIngresar({ id: nuevo.id, nombre: nuevo.nombre })
+        await supabase.from('perfiles').update({ recuperacion_hash: recuperacionHash }).eq('id', data.user.id)
+        onIngresar()
       } else {
-        if (!data) {
-          setError('No existe una cuenta con ese nombre. Usa "Crear cuenta".')
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: clave })
+        if (signInError) {
+          setError('Nombre o clave incorrectos.')
           setCargando(false)
           return
         }
-        const coincide = await bcrypt.compare(clave, data.clave_hash)
-        if (!coincide) {
-          setError('Clave incorrecta.')
-          setCargando(false)
-          return
-        }
-        onIngresar({ id: data.id, nombre: data.nombre })
+        onIngresar()
       }
     } catch (err) {
       setError('Error: ' + err.message)
@@ -111,27 +98,17 @@ function GateTrabajador({ onIngresar }) {
     }
     setCargando(true)
     try {
-      const bcrypt = (await import('bcryptjs')).default
-      const { data, error: dbError } = await supabase
-        .from('trabajadores')
-        .select('*')
-        .ilike('nombre', nombreLimpio)
-        .maybeSingle()
-      if (dbError) throw dbError
-      if (!data || !data.recuperacion_hash) {
-        setError('No existe una cuenta con ese nombre (o es una cuenta antigua sin palabra de recuperación configurada — pide al administrador que te cree una nueva).')
+      const resp = await fetch('/api/recuperar-clave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre: nombreLimpio, palabraRecuperacion, claveNueva }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok || !data.ok) {
+        setError(data.error || 'No se pudo cambiar la clave.')
         setCargando(false)
         return
       }
-      const coincide = await bcrypt.compare(palabraRecuperacion.trim().toLowerCase(), data.recuperacion_hash)
-      if (!coincide) {
-        setError('La palabra de recuperación no coincide.')
-        setCargando(false)
-        return
-      }
-      const claveHash = await bcrypt.hash(claveNueva, 8)
-      const { error: updateError } = await supabase.from('trabajadores').update({ clave_hash: claveHash }).eq('id', data.id)
-      if (updateError) throw updateError
       setAviso('Clave actualizada. Ya puedes iniciar sesión con la nueva clave.')
       setModo('entrar')
       setClave('')
@@ -217,7 +194,8 @@ function GateTrabajador({ onIngresar }) {
 }
 
 export default function WorkerPage() {
-  const [sesion, setSesion] = useState(leerSesion)
+  const [sesion, setSesion] = useState(null)
+  const [sesionLista, setSesionLista] = useState(false) // evita mostrar el gate antes de resolver la sesión inicial
   const [rows, setRows] = useState(null) // null = cargando
   const [filtro, setFiltro] = useState('')
   const [ronda, setRonda] = useState('')
@@ -232,32 +210,66 @@ export default function WorkerPage() {
   const pendientes = useRef({}) // ids con ediciones locales aún no confirmadas guardadas
   const [, forceTick] = useState(0)
 
-  function ingresar(datos) {
-    localStorage.setItem(SESION_KEY, JSON.stringify(datos))
-    setSesion(datos)
+  const cargarPerfil = useCallback(async (userId) => {
+    const { data } = await supabase.from('perfiles').select('nombre, rol').eq('id', userId).maybeSingle()
+    return data
+  }, [])
+
+  // Sesión real de Supabase Auth (reemplaza el objeto a mano en
+  // localStorage de antes). onAuthStateChange se dispara tanto por el login
+  // normal del gate como por el bypass de admin de más abajo -- una sola
+  // fuente de verdad para toda la pantalla.
+  useEffect(() => {
+    let activo = true
+
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!activo) return
+      if (session) {
+        supabase.realtime.setAuth(session.access_token)
+        const perfil = await cargarPerfil(session.user.id)
+        if (activo) setSesion({ id: session.user.id, nombre: perfil?.nombre || session.user.user_metadata?.nombre || '' })
+      }
+      if (activo) setSesionLista(true)
+    })
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!activo) return
+      if (session) {
+        supabase.realtime.setAuth(session.access_token)
+        const perfil = await cargarPerfil(session.user.id)
+        if (activo) setSesion({ id: session.user.id, nombre: perfil?.nombre || session.user.user_metadata?.nombre || '' })
+      } else {
+        setSesion(null)
+      }
+    })
+
+    return () => {
+      activo = false
+      sub.subscription.unsubscribe()
+    }
+  }, [cargarPerfil])
+
+  function ingresar() {
+    // La sesión ya quedó establecida por signInWithPassword/signUp; el
+    // listener de arriba se encarga de poblar "sesion". Este callback solo
+    // le avisa a GateTrabajador que terminó su propio submit.
   }
 
   function salir() {
-    localStorage.removeItem(SESION_KEY)
-    setSesion(null)
+    supabase.auth.signOut()
   }
 
   // Entrada directa para el administrador (link "Ver como trabajador" del
-  // panel admin): sin pedir cuenta ni clave de trabajador, queda registrado
-  // como "admin". Nunca crea una fila real en la tabla trabajadores, así que
-  // el flujo de recuperación de clave no puede tocar esta identidad.
+  // panel admin): un login real contra la cuenta fija de admin, en vez de
+  // una identidad sintética. Espera a que se resuelva la sesión inicial
+  // (sesionLista) para no pisar una sesión de trabajador ya activa.
   useEffect(() => {
-    if (sesion) return
+    if (!sesionLista || sesion) return
     const params = new URLSearchParams(window.location.search)
     const claveAdmin = params.get('admin')
     if (!claveAdmin) return
-    // La clave del link (?admin=) se valida en el servidor, igual que el
-    // login normal -- no se compara contra ninguna clave embebida en el JS.
-    verificarClaveAdmin(claveAdmin).then((ok) => {
-      if (ok) ingresar({ id: 'admin', nombre: NOMBRE_RESERVADO })
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: claveAdmin })
+  }, [sesionLista, sesion])
 
   const cargarDatos = useCallback(async () => {
     setErrorMsg('')
@@ -366,8 +378,7 @@ export default function WorkerPage() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'reportes_inventario' },
         () => {
-          localStorage.removeItem(SESION_KEY)
-          setSesion(null)
+          salir()
           setInventarioCerrado(true)
         }
       )
@@ -463,8 +474,7 @@ export default function WorkerPage() {
         await supabase.from('conteo_log').delete().in('product_id', idsVisibles)
       }
 
-      localStorage.removeItem(SESION_KEY)
-      setSesion(null)
+      salir()
       setInventarioCerrado(true)
     } catch (err) {
       setErrorMsg('No se pudo finalizar el inventario: ' + err.message)
@@ -502,6 +512,10 @@ export default function WorkerPage() {
     if (busquedaNormalizada && !r.descripcion.toLowerCase().includes(busquedaNormalizada)) return false
     return true
   })
+
+  if (!sesionLista) {
+    return null
+  }
 
   if (inventarioCerrado) {
     return (
