@@ -5,6 +5,14 @@ import { exportarInventarioExcel } from '../lib/exportarInventarioExcel.js'
 
 const ADMIN_EMAIL = 'admin@inventario.local'
 
+// Formato "DD-MM", igual al que ya se usa a mano en los nombres de ronda
+// existentes (ej. "LP 19-07").
+function fechaCorta() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}`
+}
+
 // Algunos sistemas de punto de venta antiguos exportan las cantidades como un
 // entero "sin decimales" (300) y le aplican un formato de celda en Excel que
 // lo muestra correctamente (3,00). Si leemos el valor crudo de la celda nos
@@ -53,6 +61,9 @@ export default function AdminPage() {
   const [filtroActual, setFiltroActual] = useState('')
   const [filtroInput, setFiltroInput] = useState('')
   const [ronda, setRonda] = useState('')
+  // Mientras el admin no haya tocado "ronda" a mano, se autogenera a partir
+  // del filtro + la fecha de hoy -- si la vacía del todo, retoma el autollenado.
+  const [rondaEditadaManualmente, setRondaEditadaManualmente] = useState(false)
 
   // Sincronización directa con el POS
   const [syncRequest, setSyncRequest] = useState(null) // última solicitud (o en curso)
@@ -493,7 +504,13 @@ export default function AdminPage() {
               type="text"
               placeholder='Ej: "COCA" para mostrar solo esa marca'
               value={filtroInput}
-              onChange={(e) => setFiltroInput(e.target.value)}
+              onChange={(e) => {
+                const nuevo = e.target.value
+                setFiltroInput(nuevo)
+                if (!rondaEditadaManualmente) {
+                  setRonda(nuevo ? `${nuevo} ${fechaCorta()}` : fechaCorta())
+                }
+              }}
             />
           </div>
           <div className="field">
@@ -502,7 +519,11 @@ export default function AdminPage() {
               type="text"
               placeholder="Ej: Conteo semana 1"
               value={ronda}
-              onChange={(e) => setRonda(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value
+                setRonda(v)
+                setRondaEditadaManualmente(v !== '')
+              }}
             />
           </div>
         </div>
