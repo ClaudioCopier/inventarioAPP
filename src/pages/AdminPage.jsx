@@ -335,14 +335,19 @@ export default function AdminPage() {
   }
 
   async function publicarFiltro() {
+    // Nunca guardar un nombre de ronda vacío -- si por lo que sea llegó
+    // vacío hasta acá, se genera uno igual (filtro + fecha de hoy) en vez de
+    // dejar el reporte final sin nombre.
+    const nombreRonda = ronda.trim() || (filtroInput ? `${filtroInput} ${fechaCorta()}` : fechaCorta())
     const { error } = await supabase
       .from('config')
-      .update({ filtro_prefijo: filtroInput, ronda, actualizado_en: new Date().toISOString() })
+      .update({ filtro_prefijo: filtroInput, ronda: nombreRonda, actualizado_en: new Date().toISOString() })
       .eq('id', 1)
     if (error) {
       setMensaje('Error al publicar el filtro: ' + error.message)
       return
     }
+    setRonda(nombreRonda)
     setFiltroActual(filtroInput)
     setMensaje('Filtro publicado. Los trabajadores lo verán al refrescar.')
     // Al arrancar una ronda nueva, se pide de una vez el inventario más
@@ -530,8 +535,16 @@ export default function AdminPage() {
               value={ronda}
               onChange={(e) => {
                 const v = e.target.value
-                setRonda(v)
-                setRondaEditadaManualmente(v !== '')
+                if (v === '') {
+                  // Vaciar el campo retoma el autollenado (filtro + fecha de
+                  // hoy) en vez de dejarlo en blanco -- antes se guardaba
+                  // vacío tal cual si nadie volvía a tocar el filtro.
+                  setRonda(filtroInput ? `${filtroInput} ${fechaCorta()}` : fechaCorta())
+                  setRondaEditadaManualmente(false)
+                } else {
+                  setRonda(v)
+                  setRondaEditadaManualmente(true)
+                }
               }}
             />
           </div>
