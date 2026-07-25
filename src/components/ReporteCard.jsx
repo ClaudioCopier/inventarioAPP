@@ -3,7 +3,9 @@ import { exportarReporteExcel } from '../lib/exportarReporteExcel.js'
 
 export default function ReporteCard({ reporte: r, onError }) {
   const [abierto, setAbierto] = useState(false)
-  const [filtroDetalle, setFiltroDetalle] = useState('todo') // todo | falta | sobra | descuadrados
+  // Por defecto se muestran los descuadres -- es lo que de verdad hay que
+  // revisar al abrir un reporte, "Todo" sigue disponible a un clic.
+  const [filtroDetalle, setFiltroDetalle] = useState('descuadrados') // todo | falta | sobra | descuadrados
   const [exportando, setExportando] = useState(false)
 
   const cuadrados = (r.resumen || []).filter((f) => f.estado === 'Cuadrado').length
@@ -18,7 +20,7 @@ export default function ReporteCard({ reporte: r, onError }) {
 
   function alternar() {
     setAbierto((prev) => !prev)
-    setFiltroDetalle('todo')
+    setFiltroDetalle('descuadrados')
   }
 
   async function exportar() {
