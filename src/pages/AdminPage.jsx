@@ -168,9 +168,18 @@ export default function AdminPage() {
       return
     }
     if (data) {
-      setFiltroActual(data.filtro_prefijo || '')
-      setFiltroInput(data.filtro_prefijo || '')
-      setRonda(data.ronda || '')
+      const prefijo = data.filtro_prefijo || ''
+      setFiltroActual(prefijo)
+      setFiltroInput(prefijo)
+      if (data.ronda) {
+        // Ya tiene un nombre real guardado -- se respeta como si el admin
+        // lo hubiera escrito a mano (no se pisa con un cambio de filtro).
+        setRonda(data.ronda)
+        setRondaEditadaManualmente(true)
+      } else {
+        setRonda(prefijo ? `${prefijo} ${fechaCorta()}` : fechaCorta())
+        setRondaEditadaManualmente(false)
+      }
     }
   }
 
