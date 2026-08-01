@@ -61,9 +61,11 @@ export default function AdminPage() {
   const [filtroActual, setFiltroActual] = useState('')
   const [filtroInput, setFiltroInput] = useState('')
   const [ronda, setRonda] = useState('')
-  // Mientras el admin no haya tocado "ronda" a mano, se autogenera a partir
-  // del filtro + la fecha de hoy -- si la vacía del todo, retoma el autollenado.
-  const [rondaEditadaManualmente, setRondaEditadaManualmente] = useState(false)
+  // "ronda" siempre se recalcula solo de filtro + fecha de hoy cada vez que
+  // cambia el filtro, pise o no algo escrito a mano -- a pedido del usuario
+  // (2026-08-01): antes, escribir algo a mano en el nombre bloqueaba el
+  // autollenado hasta vaciar el campo, y quedaba un nombre viejo pegado sin
+  // avisar al cambiar de filtro.
 
   // Sincronización directa con el POS
   const [syncRequest, setSyncRequest] = useState(null) // última solicitud (o en curso)
@@ -172,13 +174,9 @@ export default function AdminPage() {
       setFiltroActual(prefijo)
       setFiltroInput(prefijo)
       if (data.ronda) {
-        // Ya tiene un nombre real guardado -- se respeta como si el admin
-        // lo hubiera escrito a mano (no se pisa con un cambio de filtro).
         setRonda(data.ronda)
-        setRondaEditadaManualmente(true)
       } else {
         setRonda(prefijo ? `${prefijo} ${fechaCorta()}` : fechaCorta())
-        setRondaEditadaManualmente(false)
       }
     }
   }
@@ -521,9 +519,7 @@ export default function AdminPage() {
               onChange={(e) => {
                 const nuevo = e.target.value
                 setFiltroInput(nuevo)
-                if (!rondaEditadaManualmente) {
-                  setRonda(nuevo ? `${nuevo} ${fechaCorta()}` : fechaCorta())
-                }
+                setRonda(nuevo ? `${nuevo} ${fechaCorta()}` : fechaCorta())
               }}
             />
           </div>
@@ -535,16 +531,11 @@ export default function AdminPage() {
               value={ronda}
               onChange={(e) => {
                 const v = e.target.value
-                if (v === '') {
-                  // Vaciar el campo retoma el autollenado (filtro + fecha de
-                  // hoy) en vez de dejarlo en blanco -- antes se guardaba
-                  // vacío tal cual si nadie volvía a tocar el filtro.
-                  setRonda(filtroInput ? `${filtroInput} ${fechaCorta()}` : fechaCorta())
-                  setRondaEditadaManualmente(false)
-                } else {
-                  setRonda(v)
-                  setRondaEditadaManualmente(true)
-                }
+                // Vaciar el campo retoma el autollenado (filtro + fecha de
+                // hoy) en vez de dejarlo en blanco. Escribir algo a mano acá
+                // se respeta hasta que se vuelva a tocar el filtro de arriba
+                // (que siempre pisa este campo, ver su onChange).
+                setRonda(v === '' ? (filtroInput ? `${filtroInput} ${fechaCorta()}` : fechaCorta()) : v)
               }}
             />
           </div>
