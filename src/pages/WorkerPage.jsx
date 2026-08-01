@@ -368,6 +368,31 @@ export default function WorkerPage() {
     return () => { supabase.removeChannel(canal) }
   }, [sesion])
 
+  // Existencia del sistema en vivo (2026-08-01): mientras hay una ronda
+  // activa, agente-servidor sube a `products.inventario_sistema` lo que
+  // cambia cada ~30s (ver SERVIDOR.md, "inventario en vivo" -- lee
+  // debug.nfo, nunca toca el POS en vivo). Esto lo refleja al instante en
+  // pantalla en vez de esperar el poll de POLL_MS, así "Faltan/Sobran" se
+  // recalcula solo apenas se vende algo mientras están contando.
+  useEffect(() => {
+    if (!sesion) return
+    const canal = supabase
+      .channel('products-en-vivo')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'products' },
+        (payload) => {
+          const productId = payload.new?.id
+          if (productId == null) return
+          setRows((prev) =>
+            prev.map((r) => (r.id === productId ? { ...r, inventario_sistema: payload.new.inventario_sistema } : r))
+          )
+        }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(canal) }
+  }, [sesion])
+
   // Si cualquier trabajador presiona "Finalizar inventario", todos los que
   // estén conectados se enteran al instante y su sesión se cierra sola.
   useEffect(() => {
@@ -467,6 +492,11 @@ export default function WorkerPage() {
         resumen,
       })
       if (reporteError) throw reporteError
+
+      // activo:false (2026-08-01) -- le avisa a agente-servidor que la ronda
+      // terminó, para que deje de sincronizar existencia en vivo (ver
+      // AdminPage.jsx::publicarFiltro, que lo prende al arrancar).
+      await supabase.from('config').update({ activo: false }).eq('id', 1)
 
       // Limpiar para la siguiente ronda.
       await supabase.from('conteos').delete().neq('id', 0)

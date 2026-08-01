@@ -337,9 +337,13 @@ export default function AdminPage() {
     // vacío hasta acá, se genera uno igual (filtro + fecha de hoy) en vez de
     // dejar el reporte final sin nombre.
     const nombreRonda = ronda.trim() || (filtroInput ? `${filtroInput} ${fechaCorta()}` : fechaCorta())
+    // activo:true (2026-08-01) -- le avisa a agente-servidor que hay una
+    // ronda en curso, para que sincronice existencia en vivo cada ~30s
+    // mientras se cuenta (ver AdminPage/WorkerPage + agente.js). Se apaga
+    // solo al finalizar el inventario (WorkerPage.jsx::finalizarInventario).
     const { error } = await supabase
       .from('config')
-      .update({ filtro_prefijo: filtroInput, ronda: nombreRonda, actualizado_en: new Date().toISOString() })
+      .update({ filtro_prefijo: filtroInput, ronda: nombreRonda, activo: true, actualizado_en: new Date().toISOString() })
       .eq('id', 1)
     if (error) {
       setMensaje('Error al publicar el filtro: ' + error.message)
@@ -349,8 +353,9 @@ export default function AdminPage() {
     setFiltroActual(filtroInput)
     setMensaje('Filtro publicado. Los trabajadores lo verán al refrescar.')
     // Al arrancar una ronda nueva, se pide de una vez el inventario más
-    // reciente del POS, para que quede congelado desde el momento en que
-    // los trabajadores empiezan a contar (ver tarjeta "1." para el estado).
+    // reciente del POS, para que quede al día desde el momento en que los
+    // trabajadores empiezan a contar (ver tarjeta "1." para el estado). De
+    // ahí en más, mientras dure la ronda, se mantiene solo en vivo.
     pedirSincronizacion()
   }
 
