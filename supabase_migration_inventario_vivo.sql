@@ -18,3 +18,11 @@
 alter table config add column if not exists activo boolean default false;
 
 update config set activo = false where id = 1;
+
+-- Sin esto, ningún cambio en config/products se transmite por Realtime --
+-- el canal se conecta ("SUBSCRIBED") pero nunca recibe nada, en silencio,
+-- sin ningún error visible. Confirmado en la práctica el 2026-08-01: faltó
+-- este paso la primera vez y agente-servidor nunca se enteró de que
+-- config.activo había cambiado a true.
+alter publication supabase_realtime add table config;
+alter publication supabase_realtime add table products;
