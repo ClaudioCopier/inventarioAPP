@@ -36,7 +36,7 @@ export async function exportarInventarioExcel() {
     { header: 'Inv. Minimo', key: 'inv_minimo', width: 14 },
     { header: 'Departamento', key: 'departamento', width: 26 },
   ]
-  hoja.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F4F3F' } }
+  hoja.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF154832' } }
   hoja.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
 
   for (const p of productos) {

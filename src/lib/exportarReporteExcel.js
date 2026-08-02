@@ -14,7 +14,7 @@ export async function exportarReporteExcel(reporte) {
     { header: 'Estado', key: 'estado', width: 16 },
     { header: 'Trabajadores', key: 'trabajadores', width: 30 },
   ]
-  hoja.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F4F3F' } }
+  hoja.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF154832' } }
   hoja.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
 
   const colorPorEstado = (estado) => {
