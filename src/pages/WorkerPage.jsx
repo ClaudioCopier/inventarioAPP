@@ -493,20 +493,24 @@ export default function WorkerPage() {
       })
       if (reporteError) throw reporteError
 
-      // activo:false (2026-08-01) -- le avisa a agente-servidor que la ronda
-      // terminó, para que deje de sincronizar existencia en vivo (ver
-      // AdminPage.jsx::publicarFiltro, que lo prende al arrancar).
+      // activo:false + ronda/filtro_prefijo vacíos (2026-08-01 / 09-08) --
+      // le avisa a agente-servidor que la ronda terminó (deja de
+      // sincronizar existencia en vivo) y limpia el nombre para que la
+      // próxima ronda no arranque con el rótulo de la anterior (ver
+      // AdminPage.jsx::publicarFiltro, que lo prende/nombra al arrancar).
       //
-      // ronda/filtro_prefijo vacíos (2026-08-09) -- antes quedaban con el
-      // valor de la ronda recién cerrada. AdminPage.jsx::cargarEstado() los
-      // reusa tal cual si no están vacíos (para no perder un nombre elegido
-      // a mano si la página se recarga a mitad de una ronda) -- pero eso
-      // significa que la próxima vez que se abre el panel, el campo de
-      // nombre viene precargado con la ronda de ayer en vez de uno nuevo.
-      // Caso real: "HUASCO 08-08" se volvió a publicar el 08-09 con el
-      // mismo nombre viejo -- dos rondas reales y completas, pero con el
-      // mismo rótulo confuso, parecía que la de ayer "había vuelto".
-      await supabase.from('config').update({ activo: false, ronda: '', filtro_prefijo: '' }).eq('id', 1)
+      // Bug real encontrado el 2026-08-09: un UPDATE directo acá quedaba
+      // bloqueado en SILENCIO por la policy "config: solo admin actualiza"
+      // cada vez que finalizaba un trabajador normal (el caso de uso
+      // principal de este botón) -- RLS no tira error al bloquear filas,
+      // simplemente no las toca, así que el reporte se guardaba bien pero
+      // config nunca se actualizaba. Arreglado con una función
+      // SECURITY DEFINER (finalizar_ronda(), ver
+      // supabase_migration_finalizar_ronda.sql) que cualquier usuario
+      // logueado puede llamar, pero que SOLO puede apagar la ronda actual
+      // y limpiar su nombre -- no da permiso general para editar config.
+      const { error: configError } = await supabase.rpc('finalizar_ronda')
+      if (configError) throw configError
 
       // Limpiar para la siguiente ronda.
       await supabase.from('conteos').delete().neq('id', 0)
