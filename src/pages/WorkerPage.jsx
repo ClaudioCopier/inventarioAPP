@@ -496,7 +496,17 @@ export default function WorkerPage() {
       // activo:false (2026-08-01) -- le avisa a agente-servidor que la ronda
       // terminó, para que deje de sincronizar existencia en vivo (ver
       // AdminPage.jsx::publicarFiltro, que lo prende al arrancar).
-      await supabase.from('config').update({ activo: false }).eq('id', 1)
+      //
+      // ronda/filtro_prefijo vacíos (2026-08-09) -- antes quedaban con el
+      // valor de la ronda recién cerrada. AdminPage.jsx::cargarEstado() los
+      // reusa tal cual si no están vacíos (para no perder un nombre elegido
+      // a mano si la página se recarga a mitad de una ronda) -- pero eso
+      // significa que la próxima vez que se abre el panel, el campo de
+      // nombre viene precargado con la ronda de ayer en vez de uno nuevo.
+      // Caso real: "HUASCO 08-08" se volvió a publicar el 08-09 con el
+      // mismo nombre viejo -- dos rondas reales y completas, pero con el
+      // mismo rótulo confuso, parecía que la de ayer "había vuelto".
+      await supabase.from('config').update({ activo: false, ronda: '', filtro_prefijo: '' }).eq('id', 1)
 
       // Limpiar para la siguiente ronda.
       await supabase.from('conteos').delete().neq('id', 0)
