@@ -105,7 +105,12 @@ export default function HistorialReportesPage() {
         <>
           <p className="hint">{reportes.length} reporte{reportes.length === 1 ? '' : 's'} en total.</p>
           {reportes.map((r) => (
-            <ReporteCard key={r.id} reporte={r} onError={setMensaje} />
+            <ReporteCard
+              key={r.id}
+              reporte={r}
+              onError={setMensaje}
+              onEliminado={(id) => setReportes((prev) => prev.filter((x) => x.id !== id))}
+            />
           ))}
         </>
       )}

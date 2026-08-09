@@ -559,7 +559,12 @@ export default function AdminPage() {
         <h3>4. Reportes de inventarios finalizados</h3>
         {reportes.length === 0 && <p className="hint">Todavía no se ha finalizado ningún inventario.</p>}
         {reportes.map((r) => (
-          <ReporteCard key={r.id} reporte={r} onError={setMensaje} />
+          <ReporteCard
+            key={r.id}
+            reporte={r}
+            onError={setMensaje}
+            onEliminado={(id) => setReportes((prev) => prev.filter((x) => x.id !== id))}
+          />
         ))}
         {reportes.length > 0 && (
           <a

@@ -1,12 +1,30 @@
 import { useState } from 'react'
+import { supabase } from '../supabaseClient.js'
 import { exportarReporteExcel } from '../lib/exportarReporteExcel.js'
 
-export default function ReporteCard({ reporte: r, onError }) {
+export default function ReporteCard({ reporte: r, onError, onEliminado }) {
   const [abierto, setAbierto] = useState(false)
   // Por defecto se muestran los descuadres -- es lo que de verdad hay que
   // revisar al abrir un reporte, "Todo" sigue disponible a un clic.
   const [filtroDetalle, setFiltroDetalle] = useState('descuadrados') // todo | falta | sobra | descuadrados
   const [exportando, setExportando] = useState(false)
+  const [eliminando, setEliminando] = useState(false)
+
+  // Pedido explícito del usuario (2026-08-09) -- limpiar reportes duplicados
+  // o que salieron mal (ver caso real "HUASCO 08-08" x2, uno de los dos
+  // sobra). Antes no había forma de borrar un reporte finalizado desde la
+  // app, solo a mano en Supabase.
+  async function eliminar() {
+    if (!confirm(`¿Eliminar el reporte "${r.ronda || '(sin nombre)'}" del ${new Date(r.cerrado_en).toLocaleDateString('es-CL')}? Esta acción no se puede deshacer.`)) return
+    setEliminando(true)
+    const { error } = await supabase.from('reportes_inventario').delete().eq('id', r.id)
+    setEliminando(false)
+    if (error) {
+      onError?.('No se pudo eliminar el reporte: ' + error.message)
+      return
+    }
+    onEliminado?.(r.id)
+  }
 
   const cuadrados = (r.resumen || []).filter((f) => f.estado === 'Cuadrado').length
   const faltantes = (r.resumen || []).filter((f) => f.estado.startsWith('Faltan')).length
@@ -51,6 +69,9 @@ export default function ReporteCard({ reporte: r, onError }) {
           </button>
           <button className="btn btn-secondary" onClick={exportar} disabled={exportando}>
             {exportando ? 'Exportando…' : 'Exportar a Excel'}
+          </button>
+          <button className="btn btn-danger" onClick={eliminar} disabled={eliminando}>
+            {eliminando ? 'Eliminando…' : 'Eliminar'}
           </button>
         </div>
       </div>
