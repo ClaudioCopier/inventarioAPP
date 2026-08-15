@@ -67,9 +67,11 @@ export default function ReporteCard({ reporte: r, onError, onEliminado, soloLect
           <button className="btn btn-ghost" onClick={alternar}>
             {abierto ? 'Ocultar' : 'Ver detalle'}
           </button>
-          <button className="btn btn-secondary" onClick={exportar} disabled={exportando}>
-            {exportando ? 'Exportando…' : 'Exportar a Excel'}
-          </button>
+          {!soloLectura && (
+            <button className="btn btn-secondary" onClick={exportar} disabled={exportando}>
+              {exportando ? 'Exportando…' : 'Exportar a Excel'}
+            </button>
+          )}
           {!soloLectura && (
             <button className="btn btn-danger" onClick={eliminar} disabled={eliminando}>
               {eliminando ? 'Eliminando…' : 'Eliminar'}
