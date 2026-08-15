@@ -19,15 +19,6 @@ export default function HistorialReportesPage() {
   }, [])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const clave = params.get('clave')
-    if (!clave) return
-    supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: clave }).then(({ error }) => {
-      if (!error) setAutenticado(true)
-    })
-  }, [])
-
-  useEffect(() => {
     if (!autenticado) return
     supabase
       .from('reportes_inventario')

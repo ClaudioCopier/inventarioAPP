@@ -5,7 +5,6 @@ import { emailSintetico } from '../lib/emailSintetico.js'
 const POLL_MS = 20000
 const SAVE_DEBOUNCE_MS = 600
 const NOMBRE_RESERVADO = 'admin'
-const ADMIN_EMAIL = 'admin@inventario.local'
 
 function sumaCajasExtra(cajasExtra) {
   return (cajasExtra || []).reduce((acc, v) => acc + (Number(v) || 0), 0)
@@ -263,18 +262,6 @@ export default function WorkerPage() {
   function salir() {
     supabase.auth.signOut()
   }
-
-  // Entrada directa para el administrador (link "Ver como trabajador" del
-  // panel admin): un login real contra la cuenta fija de admin, en vez de
-  // una identidad sintética. Espera a que se resuelva la sesión inicial
-  // (sesionLista) para no pisar una sesión de trabajador ya activa.
-  useEffect(() => {
-    if (!sesionLista || sesion) return
-    const params = new URLSearchParams(window.location.search)
-    const claveAdmin = params.get('admin')
-    if (!claveAdmin) return
-    supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: claveAdmin })
-  }, [sesionLista, sesion])
 
   const cargarDatos = useCallback(async () => {
     setErrorMsg('')

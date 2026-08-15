@@ -567,12 +567,7 @@ export default function AdminPage() {
           />
         ))}
         {reportes.length > 0 && (
-          <a
-            className="btn btn-secondary"
-            href={`/admin/historial?clave=${encodeURIComponent(claveIngresada)}`}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a className="btn btn-secondary" href="/admin/historial" target="_blank" rel="noreferrer">
             Ver todos los reportes
           </a>
         )}
@@ -588,12 +583,7 @@ export default function AdminPage() {
           <button className="btn btn-secondary" onClick={exportarInventario} disabled={exportando}>
             {exportando ? 'Exportando…' : 'Exportar inventario a Excel'}
           </button>
-          <a
-            className="btn btn-secondary"
-            href={`/trabajador?admin=${encodeURIComponent(claveIngresada)}`}
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a className="btn btn-secondary" href="/trabajador" target="_blank" rel="noreferrer">
             Ver como trabajador
           </a>
           <button className="btn btn-secondary" onClick={asignarClaveInicial}>
