@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 import { exportarReporteExcel } from '../lib/exportarReporteExcel.js'
 
-export default function ReporteCard({ reporte: r, onError, onEliminado }) {
+export default function ReporteCard({ reporte: r, onError, onEliminado, soloLectura = false }) {
   const [abierto, setAbierto] = useState(false)
   // Por defecto se muestran los descuadres -- es lo que de verdad hay que
   // revisar al abrir un reporte, "Todo" sigue disponible a un clic.
@@ -70,9 +70,11 @@ export default function ReporteCard({ reporte: r, onError, onEliminado }) {
           <button className="btn btn-secondary" onClick={exportar} disabled={exportando}>
             {exportando ? 'Exportando…' : 'Exportar a Excel'}
           </button>
-          <button className="btn btn-danger" onClick={eliminar} disabled={eliminando}>
-            {eliminando ? 'Eliminando…' : 'Eliminar'}
-          </button>
+          {!soloLectura && (
+            <button className="btn btn-danger" onClick={eliminar} disabled={eliminando}>
+              {eliminando ? 'Eliminando…' : 'Eliminar'}
+            </button>
+          )}
         </div>
       </div>
       {abierto && (
@@ -100,6 +102,8 @@ export default function ReporteCard({ reporte: r, onError, onEliminado }) {
                 <tr>
                   <th>Descripción</th>
                   <th>Descuadre</th>
+                  <th>Cajas extra</th>
+                  <th>Observación</th>
                   <th>Trabajadores a cargo</th>
                 </tr>
               </thead>
@@ -108,6 +112,8 @@ export default function ReporteCard({ reporte: r, onError, onEliminado }) {
                   <tr key={i}>
                     <td>{f.descripcion}</td>
                     <td>{f.estado}</td>
+                    <td>{(f.cajas_extra || []).length > 0 ? f.cajas_extra.join(' + ') : '—'}</td>
+                    <td>{f.observacion || '—'}</td>
                     <td>{(f.trabajadores || []).join(', ')}</td>
                   </tr>
                 ))}

@@ -75,6 +75,7 @@ p { margin: 0 0 16px; color: var(--text-muted); line-height: 1.5; font-weight: 5
 .btn-ghost:hover { border-color: var(--brand-card); color: var(--brand-card); background: var(--surface);}
 .btn-danger { background: var(--alert-error); color: white; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm { padding: 10px 16px; font-size: 13px; min-height: 38px; }
 
 /* Layout Shells */
 .page { min-height: 100dvh; padding: 24px 20px; max-width: 900px; margin: 0 auto; }
@@ -167,6 +168,23 @@ p { margin: 0 0 16px; color: var(--text-muted); line-height: 1.5; font-weight: 5
   background: var(--bg-app); transition: all 0.2s; color: var(--brand-primary);
 }
 .inputs-grid input:focus { outline: none; border-color: var(--brand-card); background: var(--surface); box-shadow: 0 0 0 4px var(--brand-light); }
+
+/* Cajas extra (producto guardado en más de 1 caja) */
+.mini-field-extra { position: relative; }
+.mini-field-extra .btn-quitar-caja {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
+  border: none; background: var(--alert-error); color: white; font-size: 14px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: 700;
+}
+.btn-agregar-caja, .btn-observacion { width: 100%; margin-bottom: 12px; }
+.btn-observacion.tiene-observacion { border-color: var(--alert-warn); color: var(--alert-warn); background: var(--alert-warn-bg); }
+
+.textarea-observacion {
+  width: 100%; min-height: 90px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 15px; background: var(--bg-app); color: var(--text-main); font-family: inherit; resize: vertical;
+  margin-bottom: 16px; transition: all 0.2s;
+}
+.textarea-observacion:focus { outline: none; border-color: var(--brand-card); background: var(--surface); box-shadow: 0 0 0 4px var(--brand-light); }
 
 .status-pill {
   display: flex; align-items: center; justify-content: space-between;

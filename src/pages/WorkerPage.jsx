@@ -7,8 +7,12 @@ const SAVE_DEBOUNCE_MS = 600
 const NOMBRE_RESERVADO = 'admin'
 const ADMIN_EMAIL = 'admin@inventario.local'
 
+function sumaCajasExtra(cajasExtra) {
+  return (cajasExtra || []).reduce((acc, v) => acc + (Number(v) || 0), 0)
+}
+
 function calcularFaltante(row) {
-  const usado = (Number(row.en_tienda) || 0) + (Number(row.en_vitrina) || 0) + (Number(row.en_cajas) || 0)
+  const usado = (Number(row.en_tienda) || 0) + (Number(row.en_vitrina) || 0) + (Number(row.en_cajas) || 0) + sumaCajasExtra(row.cajas_extra)
   return (Number(row.inventario_sistema) || 0) - usado
 }
 
@@ -205,6 +209,7 @@ export default function WorkerPage() {
   const [inventarioCerrado, setInventarioCerrado] = useState(false)
   const [filtrosActivos, setFiltrosActivos] = useState({ ok: true, bad: true, warn: true })
   const [busqueda, setBusqueda] = useState('')
+  const [observacionesAbiertas, setObservacionesAbiertas] = useState({})
   const timers = useRef({})
   const savedFlags = useRef({})
   const pendientes = useRef({}) // ids con ediciones locales aún no confirmadas guardadas
@@ -321,6 +326,8 @@ export default function WorkerPage() {
         en_tienda: c?.en_tienda ?? '',
         en_vitrina: c?.en_vitrina ?? '',
         en_cajas: c?.en_cajas ?? '',
+        cajas_extra: (c?.cajas_extra ?? []).map(String),
+        observacion: c?.observacion ?? '',
       }
     })
 
@@ -350,7 +357,7 @@ export default function WorkerPage() {
           if (productId == null || pendientes.current[productId]) return
           if (payload.eventType === 'DELETE') {
             setRows((prev) =>
-              prev.map((r) => (r.id === productId ? { ...r, en_tienda: '', en_vitrina: '', en_cajas: '' } : r))
+              prev.map((r) => (r.id === productId ? { ...r, en_tienda: '', en_vitrina: '', en_cajas: '', cajas_extra: [], observacion: '' } : r))
             )
             return
           }
@@ -358,7 +365,14 @@ export default function WorkerPage() {
           setRows((prev) =>
             prev.map((r) =>
               r.id === productId
-                ? { ...r, en_tienda: c.en_tienda ?? '', en_vitrina: c.en_vitrina ?? '', en_cajas: c.en_cajas ?? '' }
+                ? {
+                    ...r,
+                    en_tienda: c.en_tienda ?? '',
+                    en_vitrina: c.en_vitrina ?? '',
+                    en_cajas: c.en_cajas ?? '',
+                    cajas_extra: (c.cajas_extra ?? []).map(String),
+                    observacion: c.observacion ?? '',
+                  }
                 : r
             )
           )
@@ -419,6 +433,45 @@ export default function WorkerPage() {
     timers.current[id] = setTimeout(() => guardarFila(id), SAVE_DEBOUNCE_MS)
   }
 
+  // Casillas extra "en cajas" (2026-08-10) -- pedido explícito del usuario:
+  // algunos productos están guardados en más de 1 caja, y esto tiene que
+  // poder decidirse producto por producto (no todos están separados así).
+  // Cada fila guarda su propio arreglo cajas_extra, independiente del resto.
+  function agregarCajaExtra(id) {
+    pendientes.current[id] = true
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, cajas_extra: [...r.cajas_extra, ''] } : r)))
+  }
+
+  function quitarCajaExtra(id, indice) {
+    pendientes.current[id] = true
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, cajas_extra: r.cajas_extra.filter((_, i) => i !== indice) } : r))
+    )
+    if (timers.current[id]) clearTimeout(timers.current[id])
+    timers.current[id] = setTimeout(() => guardarFila(id), SAVE_DEBOUNCE_MS)
+  }
+
+  function actualizarCajaExtra(id, indice, valor) {
+    const v = String(valor).replace(/[^0-9]/g, '')
+    pendientes.current[id] = true
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, cajas_extra: r.cajas_extra.map((c, i) => (i === indice ? v : c)) } : r
+      )
+    )
+    if (timers.current[id]) clearTimeout(timers.current[id])
+    timers.current[id] = setTimeout(() => guardarFila(id), SAVE_DEBOUNCE_MS)
+  }
+
+  // Observaciones por producto (2026-08-10) -- para dejar registrado el
+  // motivo de un descuadre, visible después en el reporte final.
+  function actualizarObservacion(id, valor) {
+    pendientes.current[id] = true
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, observacion: valor } : r)))
+    if (timers.current[id]) clearTimeout(timers.current[id])
+    timers.current[id] = setTimeout(() => guardarFila(id), SAVE_DEBOUNCE_MS)
+  }
+
   async function guardarFila(id) {
     if (timers.current[id]) {
       clearTimeout(timers.current[id])
@@ -430,6 +483,8 @@ export default function WorkerPage() {
       en_tienda: Number(fila.en_tienda) || 0,
       en_vitrina: Number(fila.en_vitrina) || 0,
       en_cajas: Number(fila.en_cajas) || 0,
+      cajas_extra: (fila.cajas_extra || []).map((v) => Number(v) || 0),
+      observacion: fila.observacion || '',
     }
     const { error } = await supabase.from('conteos').upsert(
       { product_id: id, ...valores, actualizado_en: new Date().toISOString() },
@@ -479,7 +534,9 @@ export default function WorkerPage() {
           inventario_sistema: r.inventario_sistema,
           en_tienda: Number(r.en_tienda) || 0,
           en_cajas: Number(r.en_cajas) || 0,
+          cajas_extra: (r.cajas_extra || []).map((v) => Number(v) || 0),
           en_vitrina: Number(r.en_vitrina) || 0,
+          observacion: r.observacion || '',
           estado,
           trabajadores: [...(trabajadoresPorProducto[r.id] || [])],
         }
@@ -570,6 +627,14 @@ export default function WorkerPage() {
           <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => setInventarioCerrado(false)}>
             Iniciar sesión
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ width: '100%', marginTop: 8 }}
+            onClick={() => window.open('/trabajador/historial', '_blank')}
+          >
+            Ver inventarios anteriores
+          </button>
         </div>
       </div>
     )
@@ -588,6 +653,9 @@ export default function WorkerPage() {
         </div>
         <div className="row-inline" style={{ gap: 8 }}>
           <button className="btn btn-ghost" onClick={cargarDatos}>Actualizar</button>
+          <button className="btn btn-ghost" onClick={() => window.open('/trabajador/historial', '_blank')}>
+            Inventarios anteriores
+          </button>
           <button className="btn btn-ghost" onClick={salir}>Salir</button>
         </div>
       </div>
@@ -685,7 +753,50 @@ export default function WorkerPage() {
                         onBlur={() => guardarFila(r.id)}
                       />
                     </div>
+                    {r.cajas_extra.map((valor, indice) => (
+                      <div className="mini-field mini-field-extra" key={indice}>
+                        <label>Caja {indice + 2}</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={valor}
+                          onChange={(e) => actualizarCajaExtra(r.id, indice, e.target.value)}
+                          onBlur={() => guardarFila(r.id)}
+                        />
+                        <button
+                          type="button"
+                          className="btn-quitar-caja"
+                          aria-label="Quitar esta caja"
+                          onClick={() => quitarCajaExtra(r.id, indice)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
                   </div>
+
+                  <button type="button" className="btn btn-ghost btn-sm btn-agregar-caja" onClick={() => agregarCajaExtra(r.id)}>
+                    + Producto guardado en otra caja
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`btn btn-ghost btn-sm btn-observacion ${r.observacion ? 'tiene-observacion' : ''}`}
+                    onClick={() => setObservacionesAbiertas((prev) => ({ ...prev, [r.id]: !prev[r.id] }))}
+                  >
+                    📝 Observaciones{r.observacion ? ' ✓' : ''}
+                  </button>
+                  {observacionesAbiertas[r.id] && (
+                    <textarea
+                      className="textarea-observacion"
+                      placeholder="Ej: faltan 2 porque se encontraron rotos, o sobran porque había una caja sin contar antes…"
+                      value={r.observacion}
+                      onChange={(e) => actualizarObservacion(r.id, e.target.value)}
+                      onBlur={() => guardarFila(r.id)}
+                    />
+                  )}
+
                   <div className={`status-pill ${claseEstado}`}>
                     <span>{texto}</span>
                     <span className={`saved-tick ${savedFlags.current[r.id] ? 'show' : ''}`}>Guardado ✓</span>

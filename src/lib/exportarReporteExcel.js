@@ -10,8 +10,10 @@ export async function exportarReporteExcel(reporte) {
     { header: 'Inventario sistema', key: 'inventario_sistema', width: 18 },
     { header: 'En tienda', key: 'en_tienda', width: 12 },
     { header: 'En cajas', key: 'en_cajas', width: 12 },
+    { header: 'Cajas extra', key: 'cajas_extra', width: 16 },
     { header: 'En vitrina', key: 'en_vitrina', width: 12 },
     { header: 'Estado', key: 'estado', width: 16 },
+    { header: 'Observación', key: 'observacion', width: 30 },
     { header: 'Trabajadores', key: 'trabajadores', width: 30 },
   ]
   hoja.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF154832' } }
@@ -29,8 +31,10 @@ export async function exportarReporteExcel(reporte) {
       inventario_sistema: fila.inventario_sistema,
       en_tienda: fila.en_tienda,
       en_cajas: fila.en_cajas,
+      cajas_extra: (fila.cajas_extra || []).length > 0 ? fila.cajas_extra.join(' + ') : '',
       en_vitrina: fila.en_vitrina,
       estado: fila.estado,
+      observacion: fila.observacion || '',
       trabajadores: (fila.trabajadores || []).join(', '),
     })
     row.eachCell((cell) => {

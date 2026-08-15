@@ -8,26 +8,48 @@ if (!url || !key) {
   console.warn('Faltan las variables VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY')
 }
 
-// Limpieza única (2026-08-09) -- caso real encontrado en producción: quien
-// ya tenía una sesión guardada en localStorage de ANTES del cambio de abajo
-// (a sessionStorage) se quedaba con la interfaz "viendose" logueada sin una
-// sesión real y válida para este cliente nuevo -- las solicitudes se
-// bloqueaban en silencio por RLS (sin sesión real, is_admin() nunca pasa),
-// sin ningún error visible, hasta que la persona cerraba sesión/reiniciaba a
-// mano. Se borra cualquier token viejo de Supabase en localStorage al cargar
-// la app, así nadie más se topa con este mismo estado fantasma.
-for (const k of Object.keys(window.localStorage)) {
-  if (k.startsWith('sb-') && k.includes('-auth-token')) window.localStorage.removeItem(k)
+// Sesión con vencimiento propio de 5 horas, en localStorage (2026-08-10) --
+// reemplaza el esquema anterior con sessionStorage, a pedido explícito del
+// usuario: los trabajadores usan el celular y a veces tienen que cambiar de
+// app por distintos motivos (llamada, otra app, etc.) -- eso basta para que
+// el sistema operativo suspenda o mate la pestaña del navegador, perdiendo
+// sessionStorage (atado al ciclo de vida de la pestaña) y forzando a
+// escribir la clave de nuevo cada vez, a mitad de un conteo.
+//
+// Con localStorage puro la sesión sobrevivía indefinidamente (el motivo
+// original del cambio a sessionStorage el 2026-08-08) -- este envoltorio le
+// pone un techo real: 5 horas desde el LOGIN, no desde la última actividad
+// (no se estira solo con el refresco automático del token), vencida esa
+// ventana getItem() devuelve null como si la sesión no existiera, GoTrueClient
+// la trata como cerrada, y el gate de la app vuelve a pedir la clave.
+const CINCO_HORAS_MS = 5 * 60 * 60 * 1000
+const claveVencimiento = (clave) => clave + '-vence-en'
+
+const storageConVencimiento = {
+  getItem(clave) {
+    const venceTexto = window.localStorage.getItem(claveVencimiento(clave))
+    if (venceTexto && Date.now() > Number(venceTexto)) {
+      window.localStorage.removeItem(clave)
+      window.localStorage.removeItem(claveVencimiento(clave))
+      return null
+    }
+    return window.localStorage.getItem(clave)
+  },
+  setItem(clave, valor) {
+    // Solo se fija el vencimiento la PRIMERA vez (login) -- los refrescos
+    // automáticos del token siguen llamando a setItem con el mismo valor de
+    // clave, pero no deben correr la ventana de 5 horas hacia adelante.
+    if (!window.localStorage.getItem(claveVencimiento(clave))) {
+      window.localStorage.setItem(claveVencimiento(clave), String(Date.now() + CINCO_HORAS_MS))
+    }
+    window.localStorage.setItem(clave, valor)
+  },
+  removeItem(clave) {
+    window.localStorage.removeItem(clave)
+    window.localStorage.removeItem(claveVencimiento(clave))
+  },
 }
 
-// Sesión atada a sessionStorage, no al localStorage por defecto de Supabase
-// -- a pedido explícito del usuario (2026-08-08): que cerrar el navegador
-// cierre la sesión de verdad, tanto para trabajador como para admin. Con el
-// storage por defecto (localStorage) el login sobrevivía indefinidamente
-// (autoRefreshToken lo renueva solo) aunque se cerrara el navegador -- solo
-// "Cerrar sesión" lo invalidaba. sessionStorage sigue sobreviviendo un
-// refresh de la página (para no desloguear a mitad de una ronda de conteo),
-// pero desaparece al cerrar la pestaña/navegador de verdad.
 export const supabase = createClient(url, key, {
-  auth: { storage: window.sessionStorage, persistSession: true, autoRefreshToken: true },
+  auth: { storage: storageConVencimiento, persistSession: true, autoRefreshToken: true },
 })

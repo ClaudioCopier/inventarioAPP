@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import AdminPage from './pages/AdminPage.jsx'
 import WorkerPage from './pages/WorkerPage.jsx'
 import HistorialReportesPage from './pages/HistorialReportesPage.jsx'
+import WorkerHistorialPage from './pages/WorkerHistorialPage.jsx'
 
 function Home() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/historial" element={<HistorialReportesPage />} />
         <Route path="/trabajador" element={<WorkerPage />} />
+        <Route path="/trabajador/historial" element={<WorkerHistorialPage />} />
       </Routes>
     </BrowserRouter>
   )
