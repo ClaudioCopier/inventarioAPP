@@ -7,8 +7,6 @@ import CargarPage from './pages/vencimientos/CargarPage.jsx'
 import ListaPage from './pages/vencimientos/ListaPage.jsx'
 import { useSesionTrabajador } from './lib/useSesionTrabajador.js'
 
-const REPORTES_WEB_URL = 'https://reportes-pdv-web.vercel.app'
-
 // Portal (2026-08-16) -- pedido explícito del usuario: "separar e integrar".
 // Un solo login de trabajador/admin, y desde acá se elige a qué pantalla ir
 // -- Conteo de inventario y Vencimientos quedan como apps separadas en el
@@ -24,7 +22,7 @@ function Home() {
       <div className="home">
         <div className="home-card">
           <div className="home-mark">◆</div>
-          <h1>Punto Verde</h1>
+          <h1>PuntoVerdeAPP</h1>
           <p>Elige cómo quieres entrar.</p>
           <div className="home-links">
             <Link className="btn btn-primary" to="/admin">Soy administrador</Link>
@@ -39,13 +37,13 @@ function Home() {
     <div className="home">
       <div className="home-card">
         <div className="home-mark">◆</div>
-        <h1>Punto Verde</h1>
+        <h1>PuntoVerdeAPP</h1>
         <p>Hola, {sesion.nombre} — elige qué hacer.</p>
         <div className="home-links">
-          <Link className="btn btn-primary" to="/trabajador">Conteo de inventario</Link>
+          <Link className="btn btn-primary" to="/trabajador">Inventario</Link>
+          <a className="btn btn-primary" href="/reportes/">Reportes</a>
           <Link className="btn btn-primary" to="/vencimientos">Vencimientos</Link>
           {sesion.rol === 'admin' && <Link className="btn btn-secondary" to="/admin">Panel admin</Link>}
-          <a className="btn btn-secondary" href={REPORTES_WEB_URL} target="_blank" rel="noreferrer">Reporte de ventas ↗</a>
           <button type="button" className="btn btn-ghost" onClick={salir}>Salir</button>
         </div>
       </div>
