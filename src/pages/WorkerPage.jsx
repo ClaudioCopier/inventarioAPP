@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
-import { emailSintetico } from '../lib/emailSintetico.js'
+import GateTrabajador from '../components/GateTrabajador.jsx'
+import { useSesionTrabajador } from '../lib/useSesionTrabajador.js'
+import { traerTodasLasFilas } from '../lib/traerTodasLasFilas.js'
+import { clasificarLote } from '../lib/vencimientosReglas.js'
 
 const POLL_MS = 20000
 const SAVE_DEBOUNCE_MS = 600
-const NOMBRE_RESERVADO = 'admin'
 
 function sumaCajasExtra(cajasExtra) {
   return (cajasExtra || []).reduce((acc, v) => acc + (Number(v) || 0), 0)
@@ -15,190 +17,8 @@ function calcularFaltante(row) {
   return (Number(row.inventario_sistema) || 0) - usado
 }
 
-function GateTrabajador({ onIngresar }) {
-  const [modo, setModo] = useState('entrar') // 'entrar' | 'crear' | 'recuperar'
-  const [nombre, setNombre] = useState('')
-  const [clave, setClave] = useState('')
-  const [palabraRecuperacion, setPalabraRecuperacion] = useState('')
-  const [claveNueva, setClaveNueva] = useState('')
-  const [cargando, setCargando] = useState(false)
-  const [error, setError] = useState('')
-  const [aviso, setAviso] = useState('')
-
-  function cambiarModo(nuevoModo) {
-    setModo(nuevoModo)
-    setError('')
-    setAviso('')
-  }
-
-  async function entrar(e) {
-    e.preventDefault()
-    setError('')
-    setAviso('')
-    const nombreLimpio = nombre.trim()
-    if (!nombreLimpio || !clave) {
-      setError('Completa tu nombre y clave.')
-      return
-    }
-    if (modo === 'crear' && nombreLimpio.toLowerCase() === NOMBRE_RESERVADO) {
-      setError('Ese nombre está reservado, elige otro.')
-      return
-    }
-    if (modo === 'crear' && !palabraRecuperacion.trim()) {
-      setError('Elige también una palabra de recuperación, por si olvidas tu clave.')
-      return
-    }
-    setCargando(true)
-    try {
-      const email = emailSintetico(nombreLimpio)
-
-      if (modo === 'crear') {
-        const { data, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password: clave,
-          options: { data: { nombre: nombreLimpio } },
-        })
-        if (signUpError) {
-          if (/already registered|already been registered/i.test(signUpError.message)) {
-            setError('Ya existe una cuenta con ese nombre. Usa "Iniciar sesión".')
-          } else {
-            setError('Error: ' + signUpError.message)
-          }
-          setCargando(false)
-          return
-        }
-        // Guarda la palabra de recuperación en el perfil recién creado (la
-        // fila ya existe: el trigger de la base la crea antes de que signUp
-        // termine de responder).
-        const bcrypt = (await import('bcryptjs')).default
-        const recuperacionHash = await bcrypt.hash(palabraRecuperacion.trim().toLowerCase(), 8)
-        await supabase.from('perfiles').update({ recuperacion_hash: recuperacionHash }).eq('id', data.user.id)
-        onIngresar()
-      } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: clave })
-        if (signInError) {
-          setError('Nombre o clave incorrectos.')
-          setCargando(false)
-          return
-        }
-        onIngresar()
-      }
-    } catch (err) {
-      setError('Error: ' + err.message)
-    } finally {
-      setCargando(false)
-    }
-  }
-
-  async function recuperar(e) {
-    e.preventDefault()
-    setError('')
-    setAviso('')
-    const nombreLimpio = nombre.trim()
-    if (!nombreLimpio || !palabraRecuperacion.trim() || !claveNueva) {
-      setError('Completa tu nombre, tu palabra de recuperación y la nueva clave.')
-      return
-    }
-    setCargando(true)
-    try {
-      const resp = await fetch('/api/recuperar-clave', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre: nombreLimpio, palabraRecuperacion, claveNueva }),
-      })
-      const data = await resp.json().catch(() => ({}))
-      if (!resp.ok || !data.ok) {
-        setError(data.error || 'No se pudo cambiar la clave.')
-        setCargando(false)
-        return
-      }
-      setAviso('Clave actualizada. Ya puedes iniciar sesión con la nueva clave.')
-      setModo('entrar')
-      setClave('')
-      setPalabraRecuperacion('')
-      setClaveNueva('')
-    } catch (err) {
-      setError('Error: ' + err.message)
-    } finally {
-      setCargando(false)
-    }
-  }
-
-  if (modo === 'recuperar') {
-    return (
-      <div className="gate">
-        <form className="gate-card" onSubmit={recuperar}>
-          <h2>Recuperar clave</h2>
-          <p>Ingresa tu nombre, tu palabra de recuperación, y la clave nueva que quieras usar.</p>
-          <div className="field">
-            <label htmlFor="nombre-rec">Nombre</label>
-            <input id="nombre-rec" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus />
-          </div>
-          <div className="field">
-            <label htmlFor="palabra-rec">Palabra de recuperación</label>
-            <input id="palabra-rec" type="text" value={palabraRecuperacion} onChange={(e) => setPalabraRecuperacion(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="clave-nueva">Clave nueva</label>
-            <input id="clave-nueva" type="password" value={claveNueva} onChange={(e) => setClaveNueva(e.target.value)} />
-          </div>
-          {error && <div className="error-text">{error}</div>}
-          <button className="btn btn-primary" style={{ width: '100%' }} type="submit" disabled={cargando}>
-            {cargando ? 'Un momento…' : 'Cambiar clave'}
-          </button>
-          <button type="button" className="btn btn-ghost" style={{ width: '100%', marginTop: 8 }} onClick={() => cambiarModo('entrar')}>
-            Volver a iniciar sesión
-          </button>
-        </form>
-      </div>
-    )
-  }
-
-  return (
-    <div className="gate">
-      <form className="gate-card" onSubmit={entrar}>
-        <h2>{modo === 'entrar' ? 'Iniciar sesión' : 'Crear cuenta'}</h2>
-        <p>{modo === 'entrar' ? 'Ingresa tu nombre y clave para contar.' : 'Elige un nombre y una clave para empezar a contar.'}</p>
-        <div className="field">
-          <label htmlFor="nombre">Nombre</label>
-          <input id="nombre" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} autoFocus />
-        </div>
-        <div className="field">
-          <label htmlFor="clave-trabajador">Clave</label>
-          <input id="clave-trabajador" type="password" value={clave} onChange={(e) => setClave(e.target.value)} />
-        </div>
-        {modo === 'crear' && (
-          <div className="field">
-            <label htmlFor="palabra-crear">Palabra de recuperación (por si olvidas tu clave)</label>
-            <input id="palabra-crear" type="text" value={palabraRecuperacion} onChange={(e) => setPalabraRecuperacion(e.target.value)} />
-          </div>
-        )}
-        {aviso && <p className="hint" style={{ color: 'var(--ok)' }}>{aviso}</p>}
-        {error && <div className="error-text">{error}</div>}
-        <button className="btn btn-primary" style={{ width: '100%' }} type="submit" disabled={cargando}>
-          {cargando ? 'Un momento…' : modo === 'entrar' ? 'Entrar' : 'Crear cuenta'}
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          style={{ width: '100%', marginTop: 8 }}
-          onClick={() => cambiarModo(modo === 'entrar' ? 'crear' : 'entrar')}
-        >
-          {modo === 'entrar' ? 'No tengo cuenta' : 'Ya tengo cuenta'}
-        </button>
-        {modo === 'entrar' && (
-          <button type="button" className="btn btn-ghost" style={{ width: '100%', marginTop: 8 }} onClick={() => cambiarModo('recuperar')}>
-            ¿Olvidaste tu clave?
-          </button>
-        )}
-      </form>
-    </div>
-  )
-}
-
 export default function WorkerPage() {
-  const [sesion, setSesion] = useState(null)
-  const [sesionLista, setSesionLista] = useState(false) // evita mostrar el gate antes de resolver la sesión inicial
+  const { sesion, sesionLista, salir } = useSesionTrabajador()
   const [rows, setRows] = useState(null) // null = cargando
   const [filtro, setFiltro] = useState('')
   const [ronda, setRonda] = useState('')
@@ -209,58 +29,16 @@ export default function WorkerPage() {
   const [filtrosActivos, setFiltrosActivos] = useState({ ok: true, bad: true, warn: true })
   const [busqueda, setBusqueda] = useState('')
   const [observacionesAbiertas, setObservacionesAbiertas] = useState({})
+  const [alertasVencimiento, setAlertasVencimiento] = useState(new Map())
   const timers = useRef({})
   const savedFlags = useRef({})
   const pendientes = useRef({}) // ids con ediciones locales aún no confirmadas guardadas
   const [, forceTick] = useState(0)
 
-  const cargarPerfil = useCallback(async (userId) => {
-    const { data } = await supabase.from('perfiles').select('nombre, rol').eq('id', userId).maybeSingle()
-    return data
-  }, [])
-
-  // Sesión real de Supabase Auth (reemplaza el objeto a mano en
-  // localStorage de antes). onAuthStateChange se dispara tanto por el login
-  // normal del gate como por el bypass de admin de más abajo -- una sola
-  // fuente de verdad para toda la pantalla.
-  useEffect(() => {
-    let activo = true
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!activo) return
-      if (session) {
-        supabase.realtime.setAuth(session.access_token)
-        const perfil = await cargarPerfil(session.user.id)
-        if (activo) setSesion({ id: session.user.id, nombre: perfil?.nombre || session.user.user_metadata?.nombre || '' })
-      }
-      if (activo) setSesionLista(true)
-    })
-
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!activo) return
-      if (session) {
-        supabase.realtime.setAuth(session.access_token)
-        const perfil = await cargarPerfil(session.user.id)
-        if (activo) setSesion({ id: session.user.id, nombre: perfil?.nombre || session.user.user_metadata?.nombre || '' })
-      } else {
-        setSesion(null)
-      }
-    })
-
-    return () => {
-      activo = false
-      sub.subscription.unsubscribe()
-    }
-  }, [cargarPerfil])
-
   function ingresar() {
     // La sesión ya quedó establecida por signInWithPassword/signUp; el
-    // listener de arriba se encarga de poblar "sesion". Este callback solo
+    // listener del hook se encarga de poblar "sesion". Este callback solo
     // le avisa a GateTrabajador que terminó su propio submit.
-  }
-
-  function salir() {
-    supabase.auth.signOut()
   }
 
   const cargarDatos = useCallback(async () => {
@@ -308,6 +86,7 @@ export default function WorkerPage() {
       const c = conteosPorId[p.id]
       return {
         id: p.id,
+        codigo: p.codigo,
         descripcion: p.descripcion,
         inventario_sistema: p.inventario_sistema,
         en_tienda: c?.en_tienda ?? '',
@@ -328,6 +107,32 @@ export default function WorkerPage() {
     const interval = setInterval(cargarDatos, POLL_MS)
     return () => clearInterval(interval)
   }, [cargarDatos, sesion])
+
+  // Etiqueta "próximo a vencer" (2026-08-16) -- deliberadamente aislada: un
+  // fallo acá (sin internet, lo que sea) nunca debe frenar el conteo, que es
+  // lo importante de esta pantalla. Se carga una vez al entrar, no en el
+  // poll de cada 20s -- el vencimiento no cambia tan seguido como para
+  // justificar reconsultar la tabla completa todo el rato.
+  useEffect(() => {
+    if (!sesion) return
+    let activo = true
+    traerTodasLasFilas('lotes_vencimiento', 'codigo, modo, estado, fecha_elaboracion, fecha_vencimiento, aviso_previo_valor, aviso_previo_unidad', (q) => q.eq('estado', 'activo'))
+      .then((lotes) => {
+        if (!activo) return
+        const hoy = new Date()
+        const porCodigo = new Map()
+        for (const l of lotes) {
+          const clase = clasificarLote(l, hoy)
+          if (clase === 'vencido' || clase === 'proximo') {
+            const actual = porCodigo.get(l.codigo)
+            if (!actual || (clase === 'vencido' && actual !== 'vencido')) porCodigo.set(l.codigo, clase)
+          }
+        }
+        setAlertasVencimiento(porCodigo)
+      })
+      .catch((e) => console.error('No se pudo cargar el estado de vencimientos (no afecta el conteo):', e.message))
+    return () => { activo = false }
+  }, [sesion])
 
   // Sincroniza en vivo: si otro trabajador guarda un conteo, se refleja al
   // instante en esta pantalla (sin esperar el poll de 20s). Si esta misma
@@ -639,6 +444,7 @@ export default function WorkerPage() {
           <h1>Conteo de inventario</h1>
         </div>
         <div className="row-inline" style={{ gap: 8 }}>
+          <a className="btn btn-ghost" href="/">Inicio</a>
           <button className="btn btn-ghost" onClick={cargarDatos}>Actualizar</button>
           <button className="btn btn-ghost" onClick={() => window.open('/trabajador/historial', '_blank')}>
             Inventarios anteriores
@@ -702,9 +508,18 @@ export default function WorkerPage() {
               if (faltante > 0) { claseEstado = 'bad'; texto = `Faltan ${faltante} productos` }
               else if (faltante < 0) { claseEstado = 'warn'; texto = `Sobran ${Math.abs(faltante)} productos` }
 
+              const claseVencimiento = alertasVencimiento.get(r.codigo)
+
               return (
                 <div className="product-card" key={r.id}>
-                  <div className="desc">{r.descripcion}</div>
+                  <div className="desc">
+                    {r.descripcion}
+                    {claseVencimiento && (
+                      <span className={`badge-vencimiento ${claseVencimiento}`}>
+                        {claseVencimiento === 'vencido' ? '⚠ Vencido' : '⚠ Próximo a vencer'}
+                      </span>
+                    )}
+                  </div>
                   <div className="sys">Inventario sistema: {r.inventario_sistema}</div>
                   <div className="inputs-grid">
                     <div className="mini-field">

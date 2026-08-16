@@ -158,6 +158,12 @@ p { margin: 0 0 16px; color: var(--text-muted); line-height: 1.5; font-weight: 5
   padding: 24px; box-shadow: var(--shadow-sm);
 }
 .product-card .desc { font-weight: 800; font-size: 18px; margin-bottom: 6px; color: var(--text-main); letter-spacing: -0.5px;}
+.badge-vencimiento {
+  display: inline-block; margin-left: 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+  padding: 3px 9px; border-radius: 999px; vertical-align: middle; text-transform: none;
+}
+.badge-vencimiento.proximo { background: var(--alert-warn-bg); color: var(--alert-warn); }
+.badge-vencimiento.vencido { background: var(--alert-error-bg); color: var(--alert-error); }
 .product-card .sys { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; font-weight: 600;}
 
 .inputs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
