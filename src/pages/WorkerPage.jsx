@@ -36,9 +36,10 @@ export default function WorkerPage() {
   const [, forceTick] = useState(0)
 
   function ingresar() {
-    // La sesión ya quedó establecida por signInWithPassword/signUp; el
-    // listener del hook se encarga de poblar "sesion". Este callback solo
-    // le avisa a GateTrabajador que terminó su propio submit.
+    // Bug real encontrado en producción (2026-08-16): sin esto, entrar por
+    // /trabajador te dejaba directo en el conteo -- nunca pasabas por el
+    // portal para elegir entre Conteo, Vencimientos o Reporte de ventas.
+    window.location.href = '/'
   }
 
   const cargarDatos = useCallback(async () => {
@@ -51,6 +52,20 @@ export default function WorkerPage() {
 
     if (configError) {
       setErrorMsg('No se pudo conectar. Revisa tu conexión a internet.')
+      setCargando(false)
+      return
+    }
+
+    // Bug real encontrado en producción (2026-08-16): sin esta comprobación,
+    // un trabajador que entra mientras no hay ninguna ronda activa
+    // (config.activo=false, filtro_prefijo vacío) veía el catálogo COMPLETO
+    // sin filtrar -- el filtro solo se aplicaba "si prefijo", y con el string
+    // vacío la consulta a products no filtraba nada. El gate de "Inventario
+    // cerrado" antes solo se disparaba de forma reactiva (evento en vivo de
+    // reportes_inventario cuando OTRO trabajador finaliza), nunca se chequeó
+    // al entrar de cero.
+    if (configData?.activo === false) {
+      setInventarioCerrado(true)
       setCargando(false)
       return
     }

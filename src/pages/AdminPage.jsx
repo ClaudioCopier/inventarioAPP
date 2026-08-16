@@ -186,8 +186,10 @@ export default function AdminPage() {
     setErrorClave('')
     const { error } = await supabase.auth.signInWithPassword({ email: ADMIN_EMAIL, password: claveIngresada })
     if (!error) {
-      setAutenticado(true)
-      setErrorClave('')
+      // Bug real encontrado en producción (2026-08-16): entrar por /admin
+      // te dejaba directo en el panel -- nunca pasabas por el portal para
+      // elegir entre Conteo, Vencimientos o Reporte de ventas.
+      window.location.href = '/'
     } else {
       setErrorClave('Clave incorrecta')
     }

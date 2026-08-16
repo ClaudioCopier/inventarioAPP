@@ -57,7 +57,7 @@ function PantallaLista() {
   }
 
   if (!sesionLista) return null
-  if (!sesion) return <GateTrabajador onIngresar={() => {}} />
+  if (!sesion) return <GateTrabajador onIngresar={() => { window.location.href = '/' }} />
 
   const hoy = new Date()
   const clasificados = (lotes || []).map((l) => ({ ...l, _clase: clasificarLote(l, hoy), _alerta: calcularAlerta(l, hoy) }))

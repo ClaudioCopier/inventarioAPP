@@ -170,7 +170,7 @@ function PantallaCargar() {
   }, [sesion])
 
   if (!sesionLista) return null
-  if (!sesion) return <GateTrabajador onIngresar={() => {}} />
+  if (!sesion) return <GateTrabajador onIngresar={() => { window.location.href = '/' }} />
 
   const pendientes = (lotes || []).filter((l) => !l.modo)
   const yaCargados = (lotes || []).filter((l) => l.modo)
