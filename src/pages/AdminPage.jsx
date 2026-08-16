@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 import ReporteCard from '../components/ReporteCard.jsx'
 import { exportarInventarioExcel } from '../lib/exportarInventarioExcel.js'
-
-const ADMIN_EMAIL = 'admin@inventario.local'
+import { ADMIN_EMAIL } from '../lib/constantes.js'
 
 // Formato "DD-MM", igual al que ya se usa a mano en los nombres de ronda
 // existentes (ej. "LP 19-07").

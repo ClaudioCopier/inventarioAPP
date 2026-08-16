@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient.js'
 import ReporteCard from '../components/ReporteCard.jsx'
-
-const ADMIN_EMAIL = 'admin@inventario.local'
+import { ADMIN_EMAIL } from '../lib/constantes.js'
 
 export default function HistorialReportesPage() {
   const [autenticado, setAutenticado] = useState(false)
