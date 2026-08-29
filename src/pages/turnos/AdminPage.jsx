@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../supabaseClient.js'
 import { ADMIN_EMAIL } from '../../lib/constantes.js'
 import CampoHora from '../../components/CampoHora.jsx'
+import { useAvanceHoras } from '../../lib/useAvanceHoras.js'
 
 const HOY_ISO = () => new Date().toISOString().slice(0, 10)
 function hace(dias) {
@@ -42,6 +43,7 @@ function FormularioTurno({ turno, sesion, onGuardado, onCancelar }) {
   const [horaSalida, setHoraSalida] = useState(turno?.hora_salida || '')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
+  const avance = useAvanceHoras({ setHoraAlmuerzoInicio, setHoraAlmuerzoFin })
 
   async function guardar() {
     if (!horaEntrada) { setError('Falta la hora de entrada.'); return }
@@ -75,14 +77,15 @@ function FormularioTurno({ turno, sesion, onGuardado, onCancelar }) {
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} max={HOY_ISO()} />
       </div>
       <div className="row-inline" style={{ gap: 16, flexWrap: 'wrap' }}>
-        <CampoHora label="Entrada" value={horaEntrada} onChange={setHoraEntrada} fecha={fecha} />
-        <CampoHora label="Almuerzo (salida)" value={horaAlmuerzoInicio} onChange={setHoraAlmuerzoInicio} fecha={fecha} />
-        <CampoHora label="Almuerzo (vuelta)" value={horaAlmuerzoFin} onChange={setHoraAlmuerzoFin} fecha={fecha} />
-        <CampoHora label="Salida" value={horaSalida} onChange={setHoraSalida} fecha={fecha} />
+        <CampoHora ref={avance.refEntrada} label="Entrada" value={horaEntrada} onChange={setHoraEntrada} fecha={fecha} onCompleto={avance.alCompletarEntrada} />
+        <CampoHora ref={avance.refAlmuerzoInicio} label="Almuerzo (salida)" value={horaAlmuerzoInicio} onChange={setHoraAlmuerzoInicio} fecha={fecha} onCompleto={avance.alCompletarAlmuerzoInicio} />
+        <CampoHora ref={avance.refAlmuerzoFin} label="Almuerzo (vuelta)" value={horaAlmuerzoFin} onChange={setHoraAlmuerzoFin} fecha={fecha} onCompleto={avance.alCompletarAlmuerzoFin} />
+        <CampoHora ref={avance.refSalida} label="Salida" value={horaSalida} onChange={setHoraSalida} fecha={fecha} onCompleto={avance.alCompletarSalida} />
       </div>
+      <p className="hint" style={{ marginTop: 0 }}>Tip: escribiendo "0000" en "Almuerzo (salida)" se salta directo a Salida — queda registrado como que no tuvo almuerzo.</p>
       {error && <div className="error-text">{error}</div>}
       <div className="row-inline" style={{ marginTop: 12 }}>
-        <button className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+        <button ref={avance.refGuardar} className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button>
         <button className="btn btn-ghost" onClick={onCancelar} disabled={guardando}>Cancelar</button>
       </div>
     </div>
@@ -104,6 +107,7 @@ function FormularioTurnoNuevo({ workers, sesion, workerIdInicial, fechaInicial, 
   const [horaSalida, setHoraSalida] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
+  const avance = useAvanceHoras({ setHoraAlmuerzoInicio, setHoraAlmuerzoFin })
 
   async function guardar() {
     if (!workerId) { setError('Elegí el trabajador.'); return }
@@ -154,14 +158,15 @@ function FormularioTurnoNuevo({ workers, sesion, workerIdInicial, fechaInicial, 
         </div>
       </div>
       <div className="row-inline" style={{ gap: 16, flexWrap: 'wrap' }}>
-        <CampoHora label="Entrada" value={horaEntrada} onChange={setHoraEntrada} fecha={fecha} />
-        <CampoHora label="Almuerzo (salida)" value={horaAlmuerzoInicio} onChange={setHoraAlmuerzoInicio} fecha={fecha} />
-        <CampoHora label="Almuerzo (vuelta)" value={horaAlmuerzoFin} onChange={setHoraAlmuerzoFin} fecha={fecha} />
-        <CampoHora label="Salida" value={horaSalida} onChange={setHoraSalida} fecha={fecha} />
+        <CampoHora ref={avance.refEntrada} label="Entrada" value={horaEntrada} onChange={setHoraEntrada} fecha={fecha} onCompleto={avance.alCompletarEntrada} />
+        <CampoHora ref={avance.refAlmuerzoInicio} label="Almuerzo (salida)" value={horaAlmuerzoInicio} onChange={setHoraAlmuerzoInicio} fecha={fecha} onCompleto={avance.alCompletarAlmuerzoInicio} />
+        <CampoHora ref={avance.refAlmuerzoFin} label="Almuerzo (vuelta)" value={horaAlmuerzoFin} onChange={setHoraAlmuerzoFin} fecha={fecha} onCompleto={avance.alCompletarAlmuerzoFin} />
+        <CampoHora ref={avance.refSalida} label="Salida" value={horaSalida} onChange={setHoraSalida} fecha={fecha} onCompleto={avance.alCompletarSalida} />
       </div>
+      <p className="hint" style={{ marginTop: 0 }}>Tip: escribiendo "0000" en "Almuerzo (salida)" se salta directo a Salida — queda registrado como que no tuvo almuerzo.</p>
       {error && <div className="error-text">{error}</div>}
       <div className="row-inline" style={{ marginTop: 12 }}>
-        <button className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando ? 'Creando…' : 'Crear turno'}</button>
+        <button ref={avance.refGuardar} className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando ? 'Creando…' : 'Crear turno'}</button>
         <button className="btn btn-ghost" onClick={onCancelar} disabled={guardando}>Cancelar</button>
       </div>
     </div>

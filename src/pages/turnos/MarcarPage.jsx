@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient.js'
 import { useSesionTrabajador } from '../../lib/useSesionTrabajador.js'
 import GateTrabajador from '../../components/GateTrabajador.jsx'
 import CampoHora from '../../components/CampoHora.jsx'
+import { useAvanceHoras } from '../../lib/useAvanceHoras.js'
 
 const HOY_ISO = () => new Date().toISOString().slice(0, 10)
 
@@ -29,6 +30,7 @@ function EdicionHoras({ turno, sesion, onGuardado, onCancelar }) {
   const [horaSalida, setHoraSalida] = useState(turno.hora_salida || '')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
+  const avance = useAvanceHoras({ setHoraAlmuerzoInicio, setHoraAlmuerzoFin })
 
   async function guardar() {
     if (!horaEntrada) { setError('La hora de entrada no puede quedar vacía.'); return }
@@ -55,14 +57,15 @@ function EdicionHoras({ turno, sesion, onGuardado, onCancelar }) {
     <div className="card" style={{ background: 'var(--alert-warn-bg)' }}>
       <p className="hint" style={{ marginTop: 0 }}>Corregir horas del {turno.fecha}</p>
       <div className="row-inline" style={{ gap: 16, flexWrap: 'wrap' }}>
-        <CampoHora label="Entrada" value={horaEntrada} onChange={setHoraEntrada} fecha={turno.fecha} />
-        <CampoHora label="Colación (salida)" value={horaAlmuerzoInicio} onChange={setHoraAlmuerzoInicio} fecha={turno.fecha} />
-        <CampoHora label="Colación (vuelta)" value={horaAlmuerzoFin} onChange={setHoraAlmuerzoFin} fecha={turno.fecha} />
-        <CampoHora label="Salida" value={horaSalida} onChange={setHoraSalida} fecha={turno.fecha} />
+        <CampoHora ref={avance.refEntrada} label="Entrada" value={horaEntrada} onChange={setHoraEntrada} fecha={turno.fecha} onCompleto={avance.alCompletarEntrada} />
+        <CampoHora ref={avance.refAlmuerzoInicio} label="Colación (salida)" value={horaAlmuerzoInicio} onChange={setHoraAlmuerzoInicio} fecha={turno.fecha} onCompleto={avance.alCompletarAlmuerzoInicio} />
+        <CampoHora ref={avance.refAlmuerzoFin} label="Colación (vuelta)" value={horaAlmuerzoFin} onChange={setHoraAlmuerzoFin} fecha={turno.fecha} onCompleto={avance.alCompletarAlmuerzoFin} />
+        <CampoHora ref={avance.refSalida} label="Salida" value={horaSalida} onChange={setHoraSalida} fecha={turno.fecha} onCompleto={avance.alCompletarSalida} />
       </div>
+      <p className="hint" style={{ marginTop: 0 }}>Tip: escribiendo "0000" en "Colación (salida)" se salta directo a Salida — queda registrado como que no tuvo colación.</p>
       {error && <div className="error-text">{error}</div>}
       <div className="row-inline" style={{ marginTop: 12 }}>
-        <button className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar corrección'}</button>
+        <button ref={avance.refGuardar} className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar corrección'}</button>
         <button className="btn btn-ghost" onClick={onCancelar} disabled={guardando}>Cancelar</button>
       </div>
     </div>
