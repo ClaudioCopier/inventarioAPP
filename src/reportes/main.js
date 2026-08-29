@@ -545,20 +545,26 @@ let cacheComisiones = null
 
 async function cargarComisiones(periodo) {
   if (!periodo) { cacheComisiones = null; renderComisionesUI(); return }
+  // turnos_comision es admin-only (ver
+  // supabase_migration_turnos_comision_privada.sql) -- Reportes ya exige
+  // is_admin() para toda la página, así que esta lectura es válida acá.
+  // !inner + dot-notation filtra por columnas de la tabla embebida
+  // (turnos.fecha), soportado por PostgREST.
   const { data, error } = await supabase
-    .from('turnos')
-    .select('worker_nombre, bruto, neto, ganancia, comision_monto, calculado_en')
-    .gte('fecha', periodo.desde)
-    .lte('fecha', periodo.hasta)
+    .from('turnos_comision')
+    .select('bruto, neto, ganancia, comision_monto, calculado_en, turnos!inner(worker_nombre, fecha)')
+    .gte('turnos.fecha', periodo.desde)
+    .lte('turnos.fecha', periodo.hasta)
     .not('calculado_en', 'is', null)
   if (error) { cacheComisiones = null; renderComisionesUI(); return }
 
   const porTrabajador = new Map()
   for (const t of data || []) {
-    if (!porTrabajador.has(t.worker_nombre)) {
-      porTrabajador.set(t.worker_nombre, { trabajador: t.worker_nombre, turnos: 0, bruto: 0, neto: 0, ganancia: 0, comision: 0 })
+    const nombre = t.turnos?.worker_nombre || '—'
+    if (!porTrabajador.has(nombre)) {
+      porTrabajador.set(nombre, { trabajador: nombre, turnos: 0, bruto: 0, neto: 0, ganancia: 0, comision: 0 })
     }
-    const acc = porTrabajador.get(t.worker_nombre)
+    const acc = porTrabajador.get(nombre)
     acc.turnos += 1
     acc.bruto += Number(t.bruto || 0)
     acc.neto += Number(t.neto || 0)

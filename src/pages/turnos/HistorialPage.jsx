@@ -14,6 +14,7 @@ const ACCION_LABEL = {
   marcado_almuerzo_fin: 'Volvió de almorzar',
   marcado_salida: 'Marcó salida',
   creado_admin: 'Turno creado por admin',
+  corregido_trabajador: 'Corrigió su propio turno',
   corregido_admin: 'Corregido por admin',
   cerrado_forzado_admin: 'Cierre forzado por admin',
   calculo_ventas: 'Se calculó venta/comisión',

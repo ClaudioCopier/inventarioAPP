@@ -172,7 +172,10 @@ function SeccionTurnos({ workers, sesion }) {
 
   const cargar = useCallback(async () => {
     setTurnos(null)
-    let query = supabase.from('turnos').select('*').gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false })
+    // turnos_comision embebido vía PostgREST -- la comisión ya no vive en
+    // "turnos" (ver supabase_migration_turnos_comision_privada.sql), solo
+    // admin puede leer esa tabla.
+    let query = supabase.from('turnos').select('*, turnos_comision(bruto, neto, ganancia, comision_porcentaje, comision_monto, calculado_en)').gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false })
     if (filtroWorker) query = query.eq('worker_id', filtroWorker)
     const { data, error } = await query
     if (error) { setMensaje('No se pudo cargar: ' + error.message); setTurnos([]); return }
@@ -216,38 +219,41 @@ function SeccionTurnos({ workers, sesion }) {
       {turnos === null && <p>Cargando…</p>}
       {turnos !== null && turnos.length === 0 && <p className="hint">No hay turnos en este rango.</p>}
 
-      {turnos !== null && turnos.map((t) => (
-        <div key={t.id} style={{ marginBottom: 12 }}>
-          {editandoId === t.id ? (
-            <FormularioTurno
-              turno={t}
-              sesion={sesion}
-              onGuardado={() => { setEditandoId(null); cargar() }}
-              onCancelar={() => setEditandoId(null)}
-            />
-          ) : (
-            <div className="card" style={{ marginBottom: 0 }}>
-              <div className="row-inline" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                <div>
-                  <strong>{t.worker_nombre}</strong> — {t.fecha}
-                  <p className="hint" style={{ margin: 0 }}>
-                    Entrada {formatoHora(t.hora_entrada)} · Almuerzo {formatoHora(t.hora_almuerzo_inicio)}–{formatoHora(t.hora_almuerzo_fin)} · Salida {formatoHora(t.hora_salida)}
-                    {' · '}
-                    {t.estado === 'abierto' ? <span className="status-pill warn" style={{ display: 'inline-flex' }}>Abierto</span> : <span className="status-pill ok" style={{ display: 'inline-flex' }}>Cerrado</span>}
-                    {t.corregido && ' · corregido'}
-                  </p>
-                  {t.calculado_en && (
-                    <p className="hint" style={{ margin: '4px 0 0' }}>
-                      Bruto {formatoMonto(t.bruto)} · Neto {formatoMonto(t.neto)} · Ganancia {formatoMonto(t.ganancia)} · Comisión ({t.comision_porcentaje}%) {formatoMonto(t.comision_monto)}
+      {turnos !== null && turnos.map((t) => {
+        const comision = Array.isArray(t.turnos_comision) ? t.turnos_comision[0] : t.turnos_comision
+        return (
+          <div key={t.id} style={{ marginBottom: 12 }}>
+            {editandoId === t.id ? (
+              <FormularioTurno
+                turno={t}
+                sesion={sesion}
+                onGuardado={() => { setEditandoId(null); cargar() }}
+                onCancelar={() => setEditandoId(null)}
+              />
+            ) : (
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="row-inline" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <div>
+                    <strong>{t.worker_nombre}</strong> — {t.fecha}
+                    <p className="hint" style={{ margin: 0 }}>
+                      Entrada {formatoHora(t.hora_entrada)} · Almuerzo {formatoHora(t.hora_almuerzo_inicio)}–{formatoHora(t.hora_almuerzo_fin)} · Salida {formatoHora(t.hora_salida)}
+                      {' · '}
+                      {t.estado === 'abierto' ? <span className="status-pill warn" style={{ display: 'inline-flex' }}>Abierto</span> : <span className="status-pill ok" style={{ display: 'inline-flex' }}>Cerrado</span>}
+                      {t.corregido && ' · corregido'}
                     </p>
-                  )}
+                    {comision?.calculado_en && (
+                      <p className="hint" style={{ margin: '4px 0 0' }}>
+                        Bruto {formatoMonto(comision.bruto)} · Neto {formatoMonto(comision.neto)} · Ganancia {formatoMonto(comision.ganancia)} · Comisión ({comision.comision_porcentaje}%) {formatoMonto(comision.comision_monto)}
+                      </p>
+                    )}
+                  </div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditandoId(t.id)}>Editar</button>
                 </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditandoId(t.id)}>Editar</button>
               </div>
-            </div>
-          )}
-        </div>
-      ))}
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
