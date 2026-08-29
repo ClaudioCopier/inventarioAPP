@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient.js'
 import { useSesionTrabajador } from '../../lib/useSesionTrabajador.js'
 import GateTrabajador from '../../components/GateTrabajador.jsx'
 import CampoHora from '../../components/CampoHora.jsx'
+import CalendarioTurnos from '../../components/CalendarioTurnos.jsx'
 import { useAvanceHoras } from '../../lib/useAvanceHoras.js'
 
 const HOY_ISO = () => new Date().toISOString().slice(0, 10)
@@ -79,8 +80,8 @@ function PantallaMarcar() {
   const [editandoHoy, setEditandoHoy] = useState(false)
   const [mensaje, setMensaje] = useState('')
   const [mensajeEsError, setMensajeEsError] = useState(false)
-  const [propios, setPropios] = useState(null)
-  const [editandoId, setEditandoId] = useState(null)
+  const [editandoDia, setEditandoDia] = useState(null) // turno del calendario en corrección, o null
+  const [refrescarTick, setRefrescarTick] = useState(0)
 
   const cargarTurnoHoy = useCallback(async () => {
     if (!sesion) return
@@ -94,24 +95,9 @@ function PantallaMarcar() {
     setTurnoHoy(data || false)
   }, [sesion])
 
-  // "Días asistidos" (2026-08-29, pedido explícito del usuario): el
-  // trabajador ve solo su asistencia (fecha + horas), nunca bruto/neto/
-  // comisión -- esos datos ya ni siquiera viven en esta tabla (ver
-  // supabase_migration_turnos_comision_privada.sql), así que no hace
-  // falta filtrar columnas acá, no existen del lado del trabajador.
-  const cargarPropios = useCallback(async () => {
-    if (!sesion) return
-    const { data, error } = await supabase
-      .from('turnos')
-      .select('*')
-      .eq('worker_id', sesion.id)
-      .order('fecha', { ascending: false })
-      .limit(14)
-    if (error) return
-    setPropios(data || [])
-  }, [sesion])
+  useEffect(() => { cargarTurnoHoy() }, [cargarTurnoHoy])
 
-  useEffect(() => { cargarTurnoHoy(); cargarPropios() }, [cargarTurnoHoy, cargarPropios])
+  function refrescarCalendario() { setRefrescarTick((n) => n + 1) }
 
   async function marcarEntrada() {
     setMarcando(true)
@@ -126,7 +112,7 @@ function PantallaMarcar() {
     if (error) { setMensaje('No se pudo marcar entrada: ' + error.message); setMensajeEsError(true); return }
     await registrarLog(data.id, sesion, 'marcado_entrada', { hora: ahora })
     setTurnoHoy(data)
-    cargarPropios()
+    refrescarCalendario()
   }
 
   async function marcarCampo(campo, accion, extra = {}) {
@@ -140,7 +126,7 @@ function PantallaMarcar() {
     if (error) { setMensaje('No se pudo marcar: ' + error.message); setMensajeEsError(true); return }
     await registrarLog(turnoHoy.id, sesion, accion, { hora: ahora })
     setTurnoHoy((prev) => ({ ...prev, ...payload }))
-    cargarPropios()
+    refrescarCalendario()
   }
 
   function marcarAlmuerzoInicio() { marcarCampo('hora_almuerzo_inicio', 'marcado_almuerzo_inicio') }
@@ -216,7 +202,7 @@ function PantallaMarcar() {
           <EdicionHoras
             turno={turnoHoy}
             sesion={sesion}
-            onGuardado={() => { setEditandoHoy(false); cargarTurnoHoy(); cargarPropios() }}
+            onGuardado={() => { setEditandoHoy(false); cargarTurnoHoy(); refrescarCalendario() }}
             onCancelar={() => setEditandoHoy(false)}
           />
         )}
@@ -224,43 +210,19 @@ function PantallaMarcar() {
 
       <div className="card">
         <p className="hint" style={{ marginTop: 0 }}>Mis días asistidos</p>
-        {propios === null && <p>Cargando…</p>}
-        {propios !== null && propios.length === 0 && <p className="hint">Todavía no marcaste ningún turno.</p>}
-        {propios !== null && propios.length > 0 && (
-          <div className="tabla-scroll">
-            <table className="table-preview">
-              <thead>
-                <tr><th>Fecha</th><th>Entrada</th><th>Colación</th><th>Salida</th><th>Estado</th><th></th></tr>
-              </thead>
-              <tbody>
-                {propios.map((t) => (
-                  <tr key={t.id}>
-                    {editandoId === t.id ? (
-                      <td colSpan={6} style={{ padding: 0 }}>
-                        <div style={{ padding: '12px 0' }}>
-                          <EdicionHoras
-                            turno={t}
-                            sesion={sesion}
-                            onGuardado={() => { setEditandoId(null); cargarPropios(); cargarTurnoHoy() }}
-                            onCancelar={() => setEditandoId(null)}
-                          />
-                        </div>
-                      </td>
-                    ) : (
-                      <>
-                        <td>{t.fecha}</td>
-                        <td>{formatoHora(t.hora_entrada)}</td>
-                        <td>{formatoHora(t.hora_almuerzo_inicio)}–{formatoHora(t.hora_almuerzo_fin)}</td>
-                        <td>{formatoHora(t.hora_salida)}</td>
-                        <td>{t.estado === 'abierto' ? 'Abierto' : 'Cerrado'}{t.corregido ? ' (corregido)' : ''}</td>
-                        <td><button className="btn btn-ghost btn-sm" onClick={() => setEditandoId(t.id)}>Corregir</button></td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {editandoDia ? (
+          <EdicionHoras
+            turno={editandoDia}
+            sesion={sesion}
+            onGuardado={() => { setEditandoDia(null); cargarTurnoHoy(); refrescarCalendario() }}
+            onCancelar={() => setEditandoDia(null)}
+          />
+        ) : (
+          <CalendarioTurnos
+            workerId={sesion.id}
+            refrescarTick={refrescarTick}
+            onEditarTurno={(t) => setEditandoDia(t)}
+          />
         )}
       </div>
     </div>

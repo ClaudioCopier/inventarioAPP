@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../supabaseClient.js'
 import { ADMIN_EMAIL } from '../../lib/constantes.js'
 import CampoHora from '../../components/CampoHora.jsx'
+import CalendarioTurnos from '../../components/CalendarioTurnos.jsx'
 import { useAvanceHoras } from '../../lib/useAvanceHoras.js'
 
 const HOY_ISO = () => new Date().toISOString().slice(0, 10)
@@ -173,114 +174,6 @@ function FormularioTurnoNuevo({ workers, sesion, workerIdInicial, fechaInicial, 
   )
 }
 
-const DIAS_SEMANA_CORTO = ['lu', 'ma', 'mi', 'ju', 'vi', 'sá', 'do']
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-
-function inicioDeMes(d) { return new Date(d.getFullYear(), d.getMonth(), 1) }
-function sumarMeses(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1) }
-function fechaISO(d) {
-  const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-// Grid de 6 semanas (42 días) empezando en lunes, con los días del mes
-// anterior/siguiente que completan la primera/última semana -- mismo
-// layout que el calendario nativo de Windows.
-function construirGrid(mes) {
-  const primero = inicioDeMes(mes)
-  const diaSemana = (primero.getDay() + 6) % 7 // lunes=0 ... domingo=6
-  const inicio = new Date(primero)
-  inicio.setDate(inicio.getDate() - diaSemana)
-  const celdas = []
-  for (let i = 0; i < 42; i++) {
-    const d = new Date(inicio)
-    d.setDate(d.getDate() + i)
-    celdas.push(d)
-  }
-  return celdas
-}
-
-// Vista de calendario de un trabajador (2026-08-29, pedido explícito del
-// usuario): en vez de una lista, un mes con los días trabajados
-// resaltados -- verde si el turno quedó cerrado, ámbar si sigue abierto.
-// Tocar un día CON turno abre el mismo formulario de edición que la
-// lista; tocar un día SIN turno crea uno nuevo directo para ese
-// trabajador y esa fecha (sin tener que abrir el formulario genérico y
-// volver a elegir a mano).
-function CalendarioTurnos({ workerId, sesion, refrescarTick, onEditarTurno, onCrearTurno }) {
-  const [mes, setMes] = useState(() => inicioDeMes(new Date()))
-  const [turnos, setTurnos] = useState(null)
-
-  const cargar = useCallback(async () => {
-    setTurnos(null)
-    const celdas = construirGrid(mes)
-    const { data, error } = await supabase
-      .from('turnos')
-      .select('*')
-      .eq('worker_id', workerId)
-      .gte('fecha', fechaISO(celdas[0]))
-      .lte('fecha', fechaISO(celdas[celdas.length - 1]))
-    if (error) { setTurnos([]); return }
-    setTurnos(data || [])
-  }, [workerId, mes, refrescarTick])
-
-  useEffect(() => { cargar() }, [cargar])
-
-  const porFecha = new Map((turnos || []).map((t) => [t.fecha, t]))
-  const celdas = construirGrid(mes)
-  const hoyIso = fechaISO(new Date())
-
-  return (
-    <div>
-      <div className="row-inline" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, maxWidth: 400 }}>
-        <button className="btn btn-ghost btn-sm" onClick={() => setMes((m) => sumarMeses(m, -1))} aria-label="Mes anterior">‹</button>
-        <strong style={{ textTransform: 'capitalize' }}>{MESES[mes.getMonth()]} de {mes.getFullYear()}</strong>
-        <button className="btn btn-ghost btn-sm" onClick={() => setMes((m) => sumarMeses(m, 1))} aria-label="Mes siguiente">›</button>
-      </div>
-
-      {turnos === null ? (
-        <p>Cargando…</p>
-      ) : (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, maxWidth: 400 }}>
-            {DIAS_SEMANA_CORTO.map((d) => (
-              <div key={d} style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-soft, #666)', padding: '2px 0' }}>{d}</div>
-            ))}
-            {celdas.map((d) => {
-              const iso = fechaISO(d)
-              const enMes = d.getMonth() === mes.getMonth()
-              const turno = porFecha.get(iso)
-              const esHoy = iso === hoyIso
-              let fondo = 'transparent'
-              if (turno) fondo = turno.estado === 'cerrado' ? '#c7ecd1' : '#fbe6b0'
-              return (
-                <button
-                  key={iso}
-                  type="button"
-                  onClick={() => (turno ? onEditarTurno(turno) : onCrearTurno(iso))}
-                  title={turno ? (turno.estado === 'cerrado' ? 'Turno cerrado -- tocar para editar' : 'Turno abierto -- tocar para editar') : 'Sin turno -- tocar para crear uno'}
-                  style={{
-                    aspectRatio: '1', border: esHoy ? '2px solid #2c5f4a' : '1px solid #ddd',
-                    borderRadius: 6, background: fondo, opacity: enMes ? 1 : 0.35,
-                    cursor: 'pointer', fontSize: 13, padding: 0,
-                  }}
-                >
-                  {d.getDate()}
-                </button>
-              )
-            })}
-          </div>
-          <div className="row-inline" style={{ gap: 16, marginTop: 12, fontSize: 13, flexWrap: 'wrap' }}>
-            <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#c7ecd1', borderRadius: 3, marginRight: 6, verticalAlign: 'middle' }} />Turno cerrado</span>
-            <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#fbe6b0', borderRadius: 3, marginRight: 6, verticalAlign: 'middle' }} />Turno abierto</span>
-            <span className="hint" style={{ margin: 0 }}>Tocá cualquier día para editar o crear un turno.</span>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
 function SeccionTurnos({ workers, sesion }) {
   const [filtroWorker, setFiltroWorker] = useState('')
   const [desde, setDesde] = useState(hace(13))
@@ -367,8 +260,9 @@ function SeccionTurnos({ workers, sesion }) {
         !editando && !creandoParaFecha && (
           <CalendarioTurnos
             workerId={filtroWorker}
-            sesion={sesion}
             refrescarTick={refrescarTick}
+            mostrarHoras
+            permiteCrear
             onEditarTurno={(t) => setEditando(t)}
             onCrearTurno={(fecha) => setCreandoParaFecha(fecha)}
           />
