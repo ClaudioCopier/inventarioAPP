@@ -176,6 +176,12 @@ function FormularioTurnoNuevo({ workers, sesion, workerIdInicial, fechaInicial, 
 
 function SeccionTurnos({ workers, sesion }) {
   const [filtroWorker, setFiltroWorker] = useState('')
+  // Vista por defecto (2026-08-29, pedido explícito del usuario): en modo
+  // "Todos", arrancar mostrando solo los turnos ABIERTOS ahora mismo (quién
+  // está trabajando en este momento) en vez del historial completo del
+  // rango -- eso queda como una segunda opción ("Todos"), no la vista
+  // inicial.
+  const [soloActivos, setSoloActivos] = useState(true)
   const [desde, setDesde] = useState(hace(13))
   const [hasta, setHasta] = useState(HOY_ISO())
   const [turnos, setTurnos] = useState(null)
@@ -186,20 +192,25 @@ function SeccionTurnos({ workers, sesion }) {
   const [mensaje, setMensaje] = useState('')
 
   // Lista (modo "Todos") -- el calendario (modo un trabajador puntual)
-  // trae sus propios datos, ver CalendarioTurnos.
+  // trae sus propios datos, ver CalendarioTurnos. "Solo activos" ignora el
+  // rango de fechas a propósito: un turno abierto de hace varios días es
+  // justo la anomalía que el admin necesita ver (alguien que se olvidó de
+  // marcar salida), no algo que un filtro de fecha reciente deba esconder.
   const cargarLista = useCallback(async () => {
     if (filtroWorker) return
     setTurnos(null)
     // turnos_comision embebido vía PostgREST -- la comisión ya no vive en
     // "turnos" (ver supabase_migration_turnos_comision_privada.sql), solo
     // admin puede leer esa tabla.
-    const { data, error } = await supabase
+    let query = supabase
       .from('turnos')
       .select('*, turnos_comision(bruto, neto, ganancia, comision_porcentaje, comision_monto, calculado_en)')
-      .gte('fecha', desde).lte('fecha', hasta).order('fecha', { ascending: false })
+      .order('fecha', { ascending: false })
+    query = soloActivos ? query.eq('estado', 'abierto') : query.gte('fecha', desde).lte('fecha', hasta)
+    const { data, error } = await query
     if (error) { setMensaje('No se pudo cargar: ' + error.message); setTurnos([]); return }
     setTurnos(data || [])
-  }, [filtroWorker, desde, hasta])
+  }, [filtroWorker, soloActivos, desde, hasta])
 
   useEffect(() => { cargarLista() }, [cargarLista])
 
@@ -225,6 +236,15 @@ function SeccionTurnos({ workers, sesion }) {
           </select>
         </div>
         {!filtroWorker && (
+          <div className="field">
+            <label>Mostrar</label>
+            <div className="row-inline" style={{ gap: 8 }}>
+              <button type="button" className={`btn btn-sm ${soloActivos ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSoloActivos(true)}>Solo activos</button>
+              <button type="button" className={`btn btn-sm ${!soloActivos ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSoloActivos(false)}>Todos (por rango)</button>
+            </div>
+          </div>
+        )}
+        {!filtroWorker && !soloActivos && (
           <>
             <div className="field"><label>Desde</label><input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></div>
             <div className="field"><label>Hasta</label><input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></div>
@@ -281,7 +301,9 @@ function SeccionTurnos({ workers, sesion }) {
           )}
 
           {turnos === null && <p>Cargando…</p>}
-          {turnos !== null && turnos.length === 0 && <p className="hint">No hay turnos en este rango.</p>}
+          {turnos !== null && turnos.length === 0 && (
+            <p className="hint">{soloActivos ? 'Nadie tiene un turno abierto ahora mismo.' : 'No hay turnos en este rango.'}</p>
+          )}
 
           {turnos !== null && turnos.map((t) => {
             const comision = Array.isArray(t.turnos_comision) ? t.turnos_comision[0] : t.turnos_comision
