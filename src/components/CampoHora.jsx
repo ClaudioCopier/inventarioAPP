@@ -26,10 +26,13 @@ function textoAHora(texto) {
   return { hh, mm }
 }
 
-// Campo de hora del día, mismo patrón dual que CampoFecha.jsx: un
-// <input type="time"> de siempre + un campo de texto en paralelo con
+// Campo de hora del día -- selector nativo arriba (control principal) +
+// atajo de texto libre abajo (acción secundaria, discreta) con
 // autoformato mientras se tipea ("1430" -> "14:30"), pensado para cargar
-// turnos rápido de memoria sin perder el selector nativo. `value`/onChange
+// turnos rápido de memoria sin perder el selector. Reordenado 2026-08-29
+// (antes iban lado a lado, con estilos de navegador distintos entre sí --
+// pedido explícito del usuario: "más lineal", selector arriba, texto
+// abajo, para que se vea como un solo campo prolijo). `value`/onChange
 // trabajan con una fecha ISO completa (igual que hora_entrada/hora_salida
 // en Supabase, timestamptz) -- `fecha` (YYYY-MM-DD) fija el día sobre el
 // que se aplica la hora elegida.
@@ -60,12 +63,13 @@ export default function CampoHora({ label, value, onChange, fecha }) {
   const textoIncompleto = texto.replace(/\D/g, '').length === 4 && !textoAHora(texto)
 
   return (
-    <div className="field">
+    <div className="field campo-compuesto">
       <label>{label}</label>
-      <div className="row-inline" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <input type="time" value={isoAHoraTexto(value)} onChange={alElegirSelector} disabled={!fecha} />
-        <input type="text" inputMode="numeric" placeholder="HHMM" value={texto} onChange={alTipear} style={{ width: 90 }} disabled={!fecha} />
-      </div>
+      <input type="time" value={isoAHoraTexto(value)} onChange={alElegirSelector} disabled={!fecha} />
+      <input
+        type="text" inputMode="numeric" placeholder="o escribí: 1430" value={texto} onChange={alTipear} disabled={!fecha}
+        className={`campo-atajo${textoIncompleto ? ' campo-atajo-error' : ''}`}
+      />
       {textoIncompleto && <p className="hint" style={{ color: 'var(--alert-error)', margin: '4px 0 0' }}>Formato: HHMM o HH:MM (24 hs)</p>}
     </div>
   )

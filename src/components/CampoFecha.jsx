@@ -39,16 +39,18 @@ export function textoAIso(texto) {
   return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`
 }
 
-// Fecha con dos formas de cargarla en paralelo, siempre sincronizadas (2026-08-23,
-// pedido explícito del usuario): el selector de calendario de siempre para
-// elegir con clicks, y al lado un campo de texto para escribir directo
-// "010526" (día, mes, año corto, sin tipear las barras) -- más rápido para
-// quien ya sabe el dato de memoria. El valor de verdad sigue siendo el ISO
-// que espera <input type="date">; el campo de texto solo se traduce
+// Fecha con dos formas de cargarla en paralelo, siempre sincronizadas
+// (2026-08-23): el selector de calendario arriba (control principal), y
+// debajo un atajo de texto para escribir directo "010526" (día, mes, año
+// corto, sin tipear las barras) -- más rápido para quien ya sabe el dato
+// de memoria. Reordenado 2026-08-29 (antes iban lado a lado -- pedido
+// explícito del usuario: selector arriba, atajo abajo, "más lineal"; ver
+// el mismo cambio en CampoHora.jsx). El valor de verdad sigue siendo el
+// ISO que espera <input type="date">; el campo de texto solo se traduce
 // hacia/desde ese valor.
 //
 // Extraído de pages/vencimientos/CargarPage.jsx (2026-08-29) para
-// reusarlo también en Turnos -- comportamiento idéntico, sin cambios.
+// reusarlo también en Turnos.
 export default function CampoFecha({ label, value, onChange, max }) {
   const [texto, setTexto] = useState(() => isoATexto(value))
 
@@ -64,12 +66,13 @@ export default function CampoFecha({ label, value, onChange, max }) {
   const textoIncompleto = texto.replace(/\D/g, '').length >= 6 && !textoAIso(texto)
 
   return (
-    <div className="field">
+    <div className="field campo-compuesto">
       <label>{label}</label>
-      <div className="row-inline" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <input type="date" max={max} value={value} onChange={(e) => onChange(e.target.value)} />
-        <input type="text" inputMode="numeric" placeholder="DDMMAA" value={texto} onChange={alTipear} style={{ width: 110 }} />
-      </div>
+      <input type="date" max={max} value={value} onChange={(e) => onChange(e.target.value)} />
+      <input
+        type="text" inputMode="numeric" placeholder="o escribí: 010526" value={texto} onChange={alTipear}
+        className={`campo-atajo${textoIncompleto ? ' campo-atajo-error' : ''}`}
+      />
       {textoIncompleto && <p className="hint" style={{ color: 'var(--alert-error)', margin: '4px 0 0' }}>Formato: DDMMAA o DD/MM/AAAA</p>}
     </div>
   )

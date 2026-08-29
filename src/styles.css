@@ -102,8 +102,39 @@ p { margin: 0 0 16px; color: var(--text-muted); line-height: 1.5; font-weight: 5
 }
 .field input:focus, .field select:focus { outline: none; border-color: var(--brand-card); background: var(--surface); box-shadow: 0 0 0 4px var(--brand-light); }
 
+/* Inputs nativos de fecha/hora (2026-08-29) -- sin esto quedan con el
+   estilo crudo del navegador (chico, sin padding, borde distinto), al
+   lado de un input de texto que sí tiene el tratamiento de arriba -- se
+   veía como dos controles de estilos distintos peleando entre sí. Mismo
+   padding/borde/radio que el resto para que sea un solo lenguaje visual. */
+.field input[type="date"], .field input[type="time"] {
+  width: 100%; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 16px; background: var(--bg-app); color: var(--text-main); font-family: inherit;
+  transition: all 0.2s; color-scheme: light;
+}
+.field input[type="date"]:focus, .field input[type="time"]:focus {
+  outline: none; border-color: var(--brand-card); background: var(--surface); box-shadow: 0 0 0 4px var(--brand-light);
+}
+
+/* Campo compuesto fecha/hora (CampoFecha.jsx / CampoHora.jsx): selector
+   nativo arriba como control principal, atajo de texto libre abajo como
+   acción secundaria discreta -- pensado para tipear rápido de memoria
+   ("010526", "1430") sin competir visualmente con el selector. */
+.campo-compuesto input[type="date"], .campo-compuesto input[type="time"] { margin-bottom: 8px; }
+.campo-compuesto .campo-atajo {
+  width: 100%; padding: 9px 12px; border: 1px dashed var(--border); border-radius: var(--radius-sm);
+  font-size: 13px; background: transparent; color: var(--text-muted); font-family: inherit;
+  text-align: center; letter-spacing: 0.5px; transition: all 0.2s;
+}
+.campo-compuesto .campo-atajo::placeholder { color: var(--text-muted); opacity: 0.7; }
+.campo-compuesto .campo-atajo:focus {
+  outline: none; border-style: solid; border-color: var(--brand-card); color: var(--text-main); background: var(--bg-app);
+}
+.campo-compuesto .campo-atajo-error { border-color: var(--alert-error); color: var(--alert-error); }
+
 .row-inline { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
 .row-inline .field { flex: 1; min-width: 180px; margin-bottom: 0; }
+.row-inline .field.campo-compuesto { min-width: 150px; }
 
 .hint { font-size: 13px; color: var(--text-muted); }
 .error-text { color: var(--alert-error); font-size: 13px; margin-top: 6px; font-weight: 600; }
