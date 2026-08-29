@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient.js'
 import { ADMIN_EMAIL } from '../../lib/constantes.js'
 import CampoHora from '../../components/CampoHora.jsx'
 import CalendarioTurnos from '../../components/CalendarioTurnos.jsx'
+import GraficoVentasPorHora from '../../components/GraficoVentasPorHora.jsx'
 import { useAvanceHoras } from '../../lib/useAvanceHoras.js'
 
 const HOY_ISO = () => new Date().toISOString().slice(0, 10)
@@ -73,6 +74,11 @@ function FormularioTurno({ turno, sesion, onGuardado, onCancelar }) {
 
   return (
     <div className="card" style={{ background: 'var(--alert-warn-bg)' }}>
+      {/* Gráfico de ventas por hora ANTES de las horas a editar
+          (2026-08-29, pedido explícito del usuario) -- solo tiene sentido
+          para un turno YA cerrado (una ventana entrada->salida completa
+          para consultar); uno todavía abierto no tiene nada que graficar. */}
+      {turno.estado === 'cerrado' && <GraficoVentasPorHora turno={turno} sesion={sesion} />}
       <div className="field" style={{ maxWidth: 220, marginBottom: 12 }}>
         <label>Fecha</label>
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} max={HOY_ISO()} />
@@ -283,6 +289,7 @@ function SeccionTurnos({ workers, sesion }) {
             refrescarTick={refrescarTick}
             mostrarHoras
             permiteCrear
+            jornadaMaximaSemanal={trabajadorSeleccionado?.horas_contrato_semanal || 42}
             onEditarTurno={(t) => setEditando(t)}
             onCrearTurno={(fecha) => setCreandoParaFecha(fecha)}
           />
@@ -412,6 +419,64 @@ function SeccionComisiones({ workers, sesion }) {
   )
 }
 
+// Horas de contrato semanal por trabajador (2026-08-29, pedido explícito
+// del usuario: "Krishna tiene contrato de 30 horas no 42 y Claudio 20
+// horas no 42") -- a diferencia de la comisión, esto NO necesita
+// historial (no es un dato que se calcule y quede como snapshot en algo
+// ya guardado): es una simple actualización directa de `perfiles.
+// horas_contrato_semanal`, usada por el calendario para saber contra qué
+// techo resaltar la semana de CADA trabajador en particular.
+function SeccionHorasContrato({ workers, onGuardado }) {
+  const [editandoWorker, setEditandoWorker] = useState(null)
+  const [nuevasHoras, setNuevasHoras] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [mensaje, setMensaje] = useState('')
+
+  async function guardar(workerId) {
+    const horas = Number(nuevasHoras)
+    if (Number.isNaN(horas) || horas <= 0 || horas > 60) { setMensaje('Las horas tienen que estar entre 1 y 60.'); return }
+    setGuardando(true)
+    const { error } = await supabase.from('perfiles').update({ horas_contrato_semanal: horas }).eq('id', workerId)
+    setGuardando(false)
+    if (error) { setMensaje('No se pudo guardar: ' + error.message); return }
+    setEditandoWorker(null)
+    setNuevasHoras('')
+    onGuardado()
+  }
+
+  return (
+    <div className="card">
+      <p className="hint" style={{ marginTop: 0 }}>Horas de contrato semanal</p>
+      <p className="hint">Se usa para resaltar en el calendario cuando ESTE trabajador supera lo pactado en su contrato — no todos tienen por qué ser 42h.</p>
+      {mensaje && <p className="error-text">{mensaje}</p>}
+      <div className="tabla-scroll">
+        <table className="table-preview">
+          <thead><tr><th>Trabajador</th><th>Horas/semana</th><th></th></tr></thead>
+          <tbody>
+            {workers.map((w) => (
+              <tr key={w.id}>
+                <td>{w.nombre}</td>
+                <td>{w.horas_contrato_semanal}h</td>
+                <td>
+                  {editandoWorker === w.id ? (
+                    <div className="row-inline" style={{ gap: 6 }}>
+                      <input type="number" min="1" max="60" step="1" style={{ width: 80 }} value={nuevasHoras} onChange={(e) => setNuevasHoras(e.target.value)} />
+                      <button className="btn btn-primary btn-sm" onClick={() => guardar(w.id)} disabled={guardando}>Guardar</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setEditandoWorker(null)} disabled={guardando}>Cancelar</button>
+                    </div>
+                  ) : (
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setEditandoWorker(w.id); setNuevasHoras(String(w.horas_contrato_semanal)) }}>Editar</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function SeccionCalcular({ workers, sesion }) {
   const [workerId, setWorkerId] = useState('')
   const [desde, setDesde] = useState(hace(13))
@@ -526,10 +591,14 @@ export default function TurnosAdminPage() {
     })
   }, [])
 
+  const cargarWorkers = useCallback(() => {
+    supabase.from('perfiles').select('id, nombre, rol, horas_contrato_semanal').order('nombre').then(({ data }) => setWorkers(data || []))
+  }, [])
+
   useEffect(() => {
     if (!autorizado) return
-    supabase.from('perfiles').select('id, nombre, rol').order('nombre').then(({ data }) => setWorkers(data || []))
-  }, [autorizado])
+    cargarWorkers()
+  }, [autorizado, cargarWorkers])
 
   if (autorizado === null) return null
 
@@ -556,6 +625,7 @@ export default function TurnosAdminPage() {
       </div>
 
       <SeccionTurnos workers={workers} sesion={sesion} />
+      <SeccionHorasContrato workers={workers} onGuardado={cargarWorkers} />
       <SeccionComisiones workers={workers} sesion={sesion} />
       <SeccionCalcular workers={workers} sesion={sesion} />
     </div>

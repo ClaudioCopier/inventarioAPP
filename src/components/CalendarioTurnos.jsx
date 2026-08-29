@@ -4,10 +4,15 @@ import { supabase } from '../supabaseClient.js'
 const DIAS_SEMANA_CORTO = ['lu', 'ma', 'mi', 'ju', 'vi', 'sá', 'do']
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
-// Jornada máxima semanal vigente en Chile (Ley 21.561, 26-04-2026) -- si
-// el total de una semana la supera, se resalta en vez de en verde neutro.
-// Es solo un aviso visual, no bloquea nada.
-const JORNADA_MAXIMA_SEMANAL = 42
+// Jornada máxima semanal general vigente en Chile (Ley 21.561,
+// 26-04-2026) -- se usa solo como valor por defecto para un trabajador
+// sin contrato configurado. El techo real para resaltar la semana es el
+// de CADA trabajador (`jornadaMaximaSemanal`, ver `perfiles.
+// horas_contrato_semanal`) -- un contrato part-time de 20h o 30h es el
+// número que importa para ESE trabajador, no el máximo legal general
+// (2026-08-29, pedido explícito del usuario: "Krishna tiene contrato de
+// 30 horas no 42 y Claudio 20 horas no 42").
+const JORNADA_MAXIMA_SEMANAL_DEFECTO = 42
 
 function inicioDeMes(d) { return new Date(d.getFullYear(), d.getMonth(), 1) }
 function sumarMeses(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1) }
@@ -79,7 +84,7 @@ function formatoHoras(horas) {
 // el trabajador no puede crear turnos desde acá, solo corregir los que ya
 // marcó (mismo criterio que el resto de Turnos: el trabajador no
 // "fabrica" asistencia, solo corrige errores de tipeo).
-export default function CalendarioTurnos({ workerId, refrescarTick, mostrarHoras = false, permiteCrear = false, onEditarTurno, onCrearTurno }) {
+export default function CalendarioTurnos({ workerId, refrescarTick, mostrarHoras = false, permiteCrear = false, jornadaMaximaSemanal = JORNADA_MAXIMA_SEMANAL_DEFECTO, onEditarTurno, onCrearTurno }) {
   const [mes, setMes] = useState(() => inicioDeMes(new Date()))
   const [turnos, setTurnos] = useState(null)
 
@@ -125,7 +130,7 @@ export default function CalendarioTurnos({ workerId, refrescarTick, mostrarHoras
           const totalSemana = mostrarHoras
             ? semana.reduce((acc, d) => acc + (horasEfectivas(porFecha.get(fechaISO(d))) || 0), 0)
             : 0
-          const excedeJornada = totalSemana > JORNADA_MAXIMA_SEMANAL
+          const excedeJornada = totalSemana > jornadaMaximaSemanal
 
           return (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: columnas, gap: 4, marginBottom: 4 }}>
@@ -177,7 +182,7 @@ export default function CalendarioTurnos({ workerId, refrescarTick, mostrarHoras
       <div className="row-inline" style={{ gap: 16, marginTop: 12, fontSize: 13, flexWrap: 'wrap' }}>
         <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#c7ecd1', borderRadius: 3, marginRight: 6, verticalAlign: 'middle' }} />Turno cerrado</span>
         <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#fbe6b0', borderRadius: 3, marginRight: 6, verticalAlign: 'middle' }} />Turno abierto</span>
-        {mostrarHoras && <span>Total semana en <span style={{ color: 'var(--alert-warn)', fontWeight: 700 }}>naranja</span> si supera las {JORNADA_MAXIMA_SEMANAL}h legales.</span>}
+        {mostrarHoras && <span>Total semana en <span style={{ color: 'var(--alert-warn)', fontWeight: 700 }}>naranja</span> si supera las {jornadaMaximaSemanal}h de su contrato.</span>}
         <span className="hint" style={{ margin: 0 }}>{permiteCrear ? 'Tocá cualquier día para editar o crear un turno.' : 'Tocá un día con turno para corregirlo.'}</span>
       </div>
     </div>
