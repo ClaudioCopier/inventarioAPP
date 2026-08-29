@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient.js'
+import { ADMIN_EMAIL } from '../lib/constantes.js'
 import { renderBarChart, renderLineChart, renderMargenChart, renderAuditoriaTendenciaChart } from './chart.js'
 
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 })
@@ -24,14 +25,23 @@ function el(html) {
 // ---------------------------------------------------------------------------
 // Sesión (2026-08-16) -- ya no hay clave de acceso propia (REPORTES_CLAVE):
 // Reportes vive en el mismo proyecto/dominio que Conteo y Vencimientos, así
-// que reusa la MISMA sesión de Supabase Auth (trabajador o admin) ya
-// establecida al entrar por el portal ("/"). Si alguien llega acá sin haber
-// pasado por el portal (link directo, sesión vencida), se lo manda para
-// allá -- no hay gate propio en esta pantalla.
+// que reusa la MISMA sesión de Supabase Auth ya establecida al entrar por
+// el portal ("/"). Si alguien llega acá sin haber pasado por el portal
+// (link directo, sesión vencida), se lo manda para allá.
+//
+// Reportes de ventas es SOLO para admin (2026-08-16, bug real en
+// producción: un trabajador logueado podía entrar acá con su propia sesión
+// válida). Mismo chequeo de autoridad que usa AdminPage.jsx para su propio
+// gate -- el email de auth, no la columna perfiles.rol (esa es solo para
+// mostrar/ocultar enlaces, no la fuente real de autorización).
 // ---------------------------------------------------------------------------
 async function iniciarApp() {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) {
+    window.location.href = '/'
+    return
+  }
+  if (session.user?.email !== ADMIN_EMAIL) {
     window.location.href = '/'
     return
   }
@@ -519,6 +529,62 @@ function renderCuentasInternas(internas) {
       return `<tr><td>${new Date(m.vendidoEn).toLocaleString('es-CL')}</td><td>${m.cuenta}</td><td>${m.cajero}</td><td>${arts}</td><td class="num">${money(m.total)}</td></tr>`
     },
     'Sin movimientos en este periodo.'
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Comisiones (2026-08-29) -- a diferencia de todo lo de arriba, esto NO
+// viene en el `datos` publicado por agente-servidor (turnos/comisiones no
+// pasan por el pipeline de reportes_ventas_*) -- se lee directo de
+// Supabase acá mismo, con la misma sesión de admin ya autenticada.
+// Solo lectura: calcular/corregir/editar el % vive en Turnos
+// (/turnos/admin), esta sección es nada más un resumen integrado. Mismo
+// patrón "oculto detrás de un botón" que Cuentas internas.
+let comisionesVisibles = false
+let cacheComisiones = null
+
+async function cargarComisiones(periodo) {
+  if (!periodo) { cacheComisiones = null; renderComisionesUI(); return }
+  const { data, error } = await supabase
+    .from('turnos')
+    .select('worker_nombre, bruto, neto, ganancia, comision_monto, calculado_en')
+    .gte('fecha', periodo.desde)
+    .lte('fecha', periodo.hasta)
+    .not('calculado_en', 'is', null)
+  if (error) { cacheComisiones = null; renderComisionesUI(); return }
+
+  const porTrabajador = new Map()
+  for (const t of data || []) {
+    if (!porTrabajador.has(t.worker_nombre)) {
+      porTrabajador.set(t.worker_nombre, { trabajador: t.worker_nombre, turnos: 0, bruto: 0, neto: 0, ganancia: 0, comision: 0 })
+    }
+    const acc = porTrabajador.get(t.worker_nombre)
+    acc.turnos += 1
+    acc.bruto += Number(t.bruto || 0)
+    acc.neto += Number(t.neto || 0)
+    acc.ganancia += Number(t.ganancia || 0)
+    acc.comision += Number(t.comision_monto || 0)
+  }
+  const filas = [...porTrabajador.values()].sort((a, b) => b.comision - a.comision)
+  const totalComision = filas.reduce((acc, f) => acc + f.comision, 0)
+  cacheComisiones = { filas, totalTurnos: (data || []).length, totalComision }
+  renderComisionesUI()
+}
+
+function renderComisionesUI() {
+  const btn = document.getElementById('btnToggleComisiones')
+  const box = document.getElementById('comisionesResumen')
+  const datos = cacheComisiones || { filas: [], totalTurnos: 0, totalComision: 0 }
+
+  btn.textContent = `${comisionesVisibles ? 'Ocultar' : 'Ver detalle'} (${datos.totalTurnos}, ${money(datos.totalComision)})`
+  box.style.display = comisionesVisibles ? '' : 'none'
+  if (!comisionesVisibles) return
+
+  renderTable('comisionesResumen',
+    [{ label: 'Trabajador' }, { label: 'Turnos', num: true }, { label: 'Bruto', num: true }, { label: 'Neto', num: true }, { label: 'Ganancia', num: true }, { label: 'Comisión', num: true }],
+    datos.filas,
+    (f) => `<tr><td>${f.trabajador}</td><td class="num">${num(f.turnos)}</td><td class="num">${money(f.bruto)}</td><td class="num">${money(f.neto)}</td><td class="num">${money(f.ganancia)}</td><td class="num">${money(f.comision)}</td></tr>`,
+    'Sin turnos calculados en este periodo -- entrá a Turnos para calcularlos.'
   )
 }
 
@@ -1011,6 +1077,7 @@ function pintar(datos) {
 
   renderCashflow(datos.flujoCaja)
   renderCuentasInternas(datos.cuentasInternas)
+  cargarComisiones(datos.periodo)
 
   const stockEmptyMsg = modo === 'rango'
     ? 'No disponible para rangos personalizados (ver aviso arriba).'
@@ -1642,6 +1709,10 @@ function initApp() {
   document.getElementById('btnToggleInternas').addEventListener('click', () => {
     internasVisibles = !internasVisibles
     renderCuentasInternas(ultimoDatos && ultimoDatos.cuentasInternas)
+  })
+  document.getElementById('btnToggleComisiones').addEventListener('click', () => {
+    comisionesVisibles = !comisionesVisibles
+    renderComisionesUI()
   })
   document.getElementById('btnToggleDevoluciones').addEventListener('click', () => {
     devolucionesVisibles = !devolucionesVisibles

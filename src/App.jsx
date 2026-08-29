@@ -5,6 +5,10 @@ import HistorialReportesPage from './pages/HistorialReportesPage.jsx'
 import WorkerHistorialPage from './pages/WorkerHistorialPage.jsx'
 import CargarPage from './pages/vencimientos/CargarPage.jsx'
 import ListaPage from './pages/vencimientos/ListaPage.jsx'
+import HistorialPage from './pages/vencimientos/HistorialPage.jsx'
+import MarcarPage from './pages/turnos/MarcarPage.jsx'
+import TurnosAdminPage from './pages/turnos/AdminPage.jsx'
+import TurnosHistorialPage from './pages/turnos/HistorialPage.jsx'
 import { useSesionTrabajador } from './lib/useSesionTrabajador.js'
 
 // Portal (2026-08-16) -- pedido explícito del usuario: "separar e integrar".
@@ -41,8 +45,10 @@ function Home() {
         <p>Hola, {sesion.nombre} — elige qué hacer.</p>
         <div className="home-links">
           <Link className="btn btn-primary" to="/trabajador">Inventario</Link>
-          <a className="btn btn-primary" href="/reportes/">Reportes</a>
           <Link className="btn btn-primary" to="/vencimientos">Vencimientos</Link>
+          <Link className="btn btn-primary" to="/turnos">Turnos</Link>
+          {sesion.rol === 'admin' && <a className="btn btn-primary" href="/reportes/">Reportes</a>}
+          {sesion.rol === 'admin' && <Link className="btn btn-secondary" to="/turnos/admin">Turnos (admin)</Link>}
           {sesion.rol === 'admin' && <Link className="btn btn-secondary" to="/admin">Panel admin</Link>}
           <button type="button" className="btn btn-ghost" onClick={salir}>Salir</button>
         </div>
@@ -62,6 +68,10 @@ export default function App() {
         <Route path="/trabajador/historial" element={<WorkerHistorialPage />} />
         <Route path="/vencimientos" element={<CargarPage />} />
         <Route path="/vencimientos/lista" element={<ListaPage />} />
+        <Route path="/vencimientos/historial" element={<HistorialPage />} />
+        <Route path="/turnos" element={<MarcarPage />} />
+        <Route path="/turnos/admin" element={<TurnosAdminPage />} />
+        <Route path="/turnos/historial" element={<TurnosHistorialPage />} />
       </Routes>
     </BrowserRouter>
   )
