@@ -29,7 +29,7 @@ function puedeOmitir(clase) {
 }
 
 function PantallaLista() {
-  const { sesion, sesionLista, salir } = useSesionTrabajador()
+  const { sesion, sesionLista } = useSesionTrabajador()
   const [lotes, setLotes] = useState(null) // null = cargando
   const [filtro, setFiltro] = useState('pendiente')
   const [busqueda, setBusqueda] = useState('')
@@ -38,7 +38,6 @@ function PantallaLista() {
   const [seleccionados, setSeleccionados] = useState(() => new Set())
   const [mensaje, setMensaje] = useState('')
   const [mensajeEsError, setMensajeEsError] = useState(false)
-  const [actualizando, setActualizando] = useState(false)
 
   const cargar = useCallback(async () => {
     setLotes(null)
@@ -56,71 +55,9 @@ function PantallaLista() {
     if (sesion) cargar()
   }, [sesion, cargar])
 
-  // "Actualizar" (2026-08-22) -- antes solo releía lotes_vencimiento tal
-  // cual estaba guardado, sin pedirle nada nuevo al agente. Ahora inserta
-  // una fila en vencimientos_solicitudes; el agente-servidor la escucha por
-  // Realtime, dispara una lectura nueva de respaldo+log (mismo mecanismo
-  // que "Sincronizar catálogo" de admin) y recién con eso fresco corre la
-  // reconciliación (compara contra la suma de lotes -- crea lotes nuevos,
-  // descuenta lo vendido) y recién ahí se vuelve a cargar la lista.
-  // Timeout generoso (8 min) -- medido en producción el 2026-08-22 con
-  // ~2900 productos: ~1 min largo la lectura de respaldo+log, ~4 min más la
-  // reconciliación (recorre TODO el catálogo, no solo lo que cambió). Nada
-  // instantáneo, a diferencia de la reconciliación sola de antes.
-  async function actualizar() {
-    setActualizando(true)
-    setMensaje('')
-    setMensajeEsError(false)
-    const { data: solicitud, error } = await supabase
-      .from('vencimientos_solicitudes')
-      .insert({ status: 'pending', solicitado_por: sesion.nombre })
-      .select()
-      .single()
-    if (error) {
-      setMensaje('No se pudo pedir la actualización: ' + error.message)
-      setMensajeEsError(true)
-      setActualizando(false)
-      return
-    }
-
-    let resuelto = false
-    const terminar = async (row) => {
-      if (resuelto) return
-      resuelto = true
-      supabase.removeChannel(canal)
-      clearTimeout(timeoutId)
-      setActualizando(false)
-      if (row?.status === 'error') {
-        setMensaje('La actualización falló: ' + (row.mensaje || 'error desconocido'))
-        setMensajeEsError(true)
-      } else {
-        setMensaje(row?.mensaje ? `Actualizado: ${row.mensaje}` : 'Actualizado.')
-        setMensajeEsError(false)
-      }
-      await cargar()
-    }
-
-    const canal = supabase
-      .channel(`vencimientos-solicitud-${solicitud.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'vencimientos_solicitudes', filter: `id=eq.${solicitud.id}` },
-        (payload) => {
-          if (payload.new?.status === 'done' || payload.new?.status === 'error') terminar(payload.new)
-        }
-      )
-      .subscribe()
-
-    const timeoutId = setTimeout(() => {
-      if (resuelto) return
-      resuelto = true
-      supabase.removeChannel(canal)
-      setActualizando(false)
-      setMensaje('La actualización está tardando más de lo normal -- probá de nuevo en un momento.')
-      setMensajeEsError(true)
-      cargar()
-    }, 480000)
-  }
+  // "Actualizar" se movió a la pantalla principal (CargarPage, /vencimientos)
+  // -- pedido explícito del usuario (2026-08-29): que esté siempre en un
+  // solo lugar en vez de repetido en cada pantalla de Vencimientos.
 
   async function omitir(lote) {
     setOmitiendo((prev) => ({ ...prev, [lote.id]: true }))
@@ -253,18 +190,13 @@ function PantallaLista() {
           <h1>Lista completa</h1>
         </div>
         <div className="row-inline" style={{ gap: 8 }}>
-          <a className="btn btn-ghost" href="/vencimientos">Cargar producto</a>
+          <a className="btn btn-ghost" href="/vencimientos">Inicio</a>
           <a className="btn btn-ghost" href="/vencimientos/historial">Historial</a>
-          <button className="btn btn-ghost" onClick={actualizar} disabled={actualizando}>
-            {actualizando ? 'Actualizando…' : 'Actualizar'}
-          </button>
-          <button className="btn btn-ghost" onClick={salir}>Salir</button>
+          <a className="btn btn-ghost" href="/">Salir</a>
         </div>
       </div>
 
       <p className="hint">Los pendientes son los que hay que revisar primero — usá "Omitir" para los que no importan (velas, envases, etc.) y avanzar rápido.</p>
-
-      {actualizando && <p className="hint">Actualizando inventario y lotes contra la tienda — puede tardar varios minutos, podés esperar acá.</p>}
 
       {mensaje && <div className="card"><p className={mensajeEsError ? 'error-text' : ''}>{mensaje}</p></div>}
 

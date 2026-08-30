@@ -8,9 +8,10 @@ const HOY_ISO = () => new Date().toISOString().slice(0, 10)
 const EPSILON = 0.001
 
 async function registrarLog(loteId, codigo, sesion, accion, detalle) {
-  await supabase.from('lotes_vencimiento_log').insert({
+  const { error } = await supabase.from('lotes_vencimiento_log').insert({
     lote_id: loteId, codigo, worker_id: sesion.id, worker_nombre: sesion.nombre, accion, detalle,
   })
+  if (error) console.error('No se pudo registrar el log de vencimientos:', error.message)
 }
 
 // "Juntar lotes" (2026-08-23, pedido explícito del usuario): cuando un lote
@@ -150,7 +151,7 @@ function PanelSeparar({ lote, sesion, onSeparado, onCancelar }) {
 // "Omitir" vale SOLO para este lote (pedido explícito del usuario): el
 // próximo lote del mismo código vuelve a preguntar desde cero, así que acá
 // no se guarda ninguna preferencia por producto, solo se actualiza esta fila.
-function FormularioLote({ lote, lotesHermanos, sesion, onGuardado, onSepararClick }) {
+function FormularioLote({ lote, lotesHermanos, sesion, onGuardado, onFusionado, onSepararClick }) {
   const [modo, setModo] = useState('completo')
   const [fechaElaboracion, setFechaElaboracion] = useState('')
   const [fechaVencimiento, setFechaVencimiento] = useState('')
@@ -176,7 +177,7 @@ function FormularioLote({ lote, lotesHermanos, sesion, onGuardado, onSepararClic
     setGuardando(true)
     try {
       await fusionarLotes(lote, candidatoFusion, sesion)
-      onGuardado()
+      onFusionado()
     } catch (e) {
       setError('No se pudo juntar: ' + e.message)
     } finally {
@@ -206,8 +207,14 @@ function FormularioLote({ lote, lotesHermanos, sesion, onGuardado, onSepararClic
     const { error: errUpdate } = await supabase.from('lotes_vencimiento').update(payload).eq('id', lote.id)
     setGuardando(false)
     if (errUpdate) { setError('No se pudo guardar: ' + errUpdate.message); return }
-    await registrarLog(lote.id, lote.codigo, sesion, accion, payload)
-    onGuardado()
+    // El log es solo auditoría -- no hace falta esperarlo para que la
+    // pantalla avance (2026-08-29, pedido explícito del usuario: "Guardar"
+    // tardaba hasta 30s porque encadenaba 3 viajes de red seguidos --
+    // update, insert del log, y un recargarLotesActual() que volvía a pedir
+    // TODOS los lotes del producto -- cuando alcanza con actualizar este
+    // lote en memoria).
+    registrarLog(lote.id, lote.codigo, sesion, accion, payload)
+    onGuardado({ id: lote.id, ...payload })
   }
 
   return (
@@ -325,14 +332,14 @@ async function traerUltimosAgregados() {
   return [...porCodigo.values()].sort((a, b) => (a.creado_en < b.creado_en ? 1 : -1)).slice(0, 10)
 }
 
-function UltimosAgregados() {
+function UltimosAgregados({ refreshKey }) {
   const [items, setItems] = useState(null)
 
   useEffect(() => {
     let activo = true
     traerUltimosAgregados().then((data) => { if (activo) setItems(data) })
     return () => { activo = false }
-  }, [])
+  }, [refreshKey])
 
   if (!items || items.length === 0) return null
 
@@ -363,7 +370,7 @@ function UltimosAgregados() {
 }
 
 function PantallaCargar() {
-  const { sesion, sesionLista, salir } = useSesionTrabajador()
+  const { sesion, sesionLista } = useSesionTrabajador()
   const [busqueda, setBusqueda] = useState('')
   const [resultados, setResultados] = useState(null) // null = sin buscar todavía
   const [buscando, setBuscando] = useState(false)
@@ -372,6 +379,64 @@ function PantallaCargar() {
   const [cargandoLotes, setCargandoLotes] = useState(false)
   const [mensaje, setMensaje] = useState('')
   const [separandoId, setSeparandoId] = useState(null)
+  const [actualizando, setActualizando] = useState(false)
+  const [mensajeActualizar, setMensajeActualizar] = useState('')
+  const [mensajeActualizarEsError, setMensajeActualizarEsError] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // "Actualizar" (movido acá desde ListaPage.jsx, pedido explícito del
+  // usuario 2026-08-29: tiene que estar siempre en la pantalla principal de
+  // Vencimientos, no repetido). Inserta una solicitud en
+  // vencimientos_solicitudes, el agente-servidor la escucha por Realtime y
+  // corre publicarInventario() + reconciliar() + reconciliarEnVivo(); acá se
+  // espera el resultado por Realtime filtrado a esa fila puntual, con un
+  // timeout de respaldo por si el agente está apagado o la conexión se cae.
+  async function actualizar() {
+    setActualizando(true)
+    setMensajeActualizar('')
+    setMensajeActualizarEsError(false)
+    const { data, error } = await supabase
+      .from('vencimientos_solicitudes')
+      .insert({ status: 'pending', solicitado_por: sesion.nombre })
+      .select()
+      .single()
+    if (error) {
+      setActualizando(false)
+      setMensajeActualizar('No se pudo pedir la actualización: ' + error.message)
+      setMensajeActualizarEsError(true)
+      return
+    }
+
+    let terminado = false
+    const canal = supabase
+      .channel(`vencimientos-solicitud-${data.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'vencimientos_solicitudes', filter: `id=eq.${data.id}` },
+        (payload) => {
+          const fila = payload.new
+          if (fila.status !== 'done' && fila.status !== 'error') return
+          terminado = true
+          supabase.removeChannel(canal)
+          setActualizando(false)
+          setMensajeActualizar(fila.mensaje || (fila.status === 'done' ? 'Actualización terminada.' : 'La actualización terminó con un error.'))
+          setMensajeActualizarEsError(fila.status === 'error')
+          if (fila.status === 'done') {
+            setRefreshKey((k) => k + 1)
+            if (seleccionado) recargarLotesActual()
+          }
+        }
+      )
+      .subscribe()
+
+    setTimeout(() => {
+      if (terminado) return
+      supabase.removeChannel(canal)
+      setActualizando(false)
+      setMensajeActualizar('La actualización está tardando más de lo esperado — revisá que el agente de la tienda esté prendido y conectado.')
+      setMensajeActualizarEsError(true)
+    }, 480000)
+  }
 
   async function buscar(e, terminoForzado) {
     e?.preventDefault()
@@ -408,6 +473,16 @@ function PantallaCargar() {
   function recargarLotesActual() {
     setSeparandoId(null)
     if (seleccionado) elegirProducto(seleccionado)
+  }
+
+  // Cuando un FormularioLote guarda un cambio simple (fecha o "omitir") ya
+  // sabemos el resultado exacto sin volver a preguntarle a Supabase -- pedido
+  // explícito del usuario (2026-08-29): recargarLotesActual() volvía a traer
+  // TODOS los lotes del producto por la red, agregando un viaje de ida y
+  // vuelta más a un "Guardar" que ya tenía que esperar el update en sí.
+  // Fusionar/separar sí siguen recargando entero porque tocan más de un lote.
+  function actualizarLoteEnMemoria(loteActualizado) {
+    setLotes((prev) => (prev || []).map((l) => (l.id === loteActualizado.id ? { ...l, ...loteActualizado } : l)))
   }
 
   // Llegada desde ListaPage.jsx ("Cargar fecha" en una fila puntual) o desde
@@ -460,14 +535,20 @@ function PantallaCargar() {
           <h1>Cargar producto</h1>
         </div>
         <div className="row-inline" style={{ gap: 8 }}>
+          <a className="btn btn-ghost" href="/vencimientos">Inicio</a>
           <a className="btn btn-ghost" href="/vencimientos/lista">Ver lista completa</a>
           <a className="btn btn-ghost" href="/vencimientos/historial">Historial</a>
-          <a className="btn btn-ghost" href="/">Inicio</a>
-          <button className="btn btn-ghost" onClick={salir}>Salir</button>
+          <button className="btn btn-ghost" onClick={actualizar} disabled={actualizando}>
+            {actualizando ? 'Actualizando…' : 'Actualizar'}
+          </button>
+          <a className="btn btn-ghost" href="/">Salir</a>
         </div>
       </div>
 
-      {!seleccionado && <UltimosAgregados />}
+      {actualizando && <p className="hint">Actualizando inventario y lotes contra la tienda — puede tardar varios minutos, podés esperar acá.</p>}
+      {mensajeActualizar && <div className="card"><p className={mensajeActualizarEsError ? 'error-text' : ''}>{mensajeActualizar}</p></div>}
+
+      {!seleccionado && <UltimosAgregados refreshKey={refreshKey} />}
 
       <form className="card" onSubmit={buscar}>
         <div className="field" style={{ marginBottom: 12 }}>
@@ -528,7 +609,8 @@ function PantallaCargar() {
                   lote={lote}
                   lotesHermanos={(lotes || []).filter((l) => l.id !== lote.id)}
                   sesion={sesion}
-                  onGuardado={recargarLotesActual}
+                  onGuardado={actualizarLoteEnMemoria}
+                  onFusionado={recargarLotesActual}
                   onSepararClick={() => setSeparandoId(lote.id)}
                 />
               )}

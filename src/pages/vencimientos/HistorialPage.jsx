@@ -30,7 +30,7 @@ const ACCION_LABEL = {
 }
 
 function PantallaHistorial() {
-  const { sesion, sesionLista, salir } = useSesionTrabajador()
+  const { sesion, sesionLista } = useSesionTrabajador()
   const [entradas, setEntradas] = useState(null)
   const [mensaje, setMensaje] = useState('')
   const [busqueda, setBusqueda] = useState('')
@@ -66,10 +66,9 @@ function PantallaHistorial() {
           <h1>Historial</h1>
         </div>
         <div className="row-inline" style={{ gap: 8 }}>
+          <a className="btn btn-ghost" href="/vencimientos">Inicio</a>
           <a className="btn btn-ghost" href="/vencimientos/lista">Ver lista</a>
-          <a className="btn btn-ghost" href="/vencimientos">Cargar producto</a>
-          <a className="btn btn-ghost" href="/">Inicio</a>
-          <button className="btn btn-ghost" onClick={salir}>Salir</button>
+          <a className="btn btn-ghost" href="/">Salir</a>
         </div>
       </div>
 
