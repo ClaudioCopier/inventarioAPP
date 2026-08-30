@@ -43,6 +43,11 @@ function EdicionHoras({ turno, sesion, onGuardado, onCancelar }) {
       hora_almuerzo_inicio: horaAlmuerzoInicio || null,
       hora_almuerzo_fin: horaAlmuerzoFin || null,
       hora_salida: horaSalida || null,
+      // estado es columna generada a partir de hora_salida (2026-08-30,
+      // ver supabase_migration_turnos_estado_generado.sql) -- arregla de
+      // raíz un bug real: este formulario corregía hora_salida pero nunca
+      // tocaba estado, y el turno quedaba "abierto" para siempre. Ahora
+      // Postgres lo calcula solo, no se puede volver a olvidar.
     }
     const { error: errUpdate } = await supabase
       .from('turnos')
@@ -131,7 +136,7 @@ function PantallaMarcar() {
 
   function marcarAlmuerzoInicio() { marcarCampo('hora_almuerzo_inicio', 'marcado_almuerzo_inicio') }
   function marcarAlmuerzoFin() { marcarCampo('hora_almuerzo_fin', 'marcado_almuerzo_fin') }
-  function marcarSalida() { marcarCampo('hora_salida', 'marcado_salida', { estado: 'cerrado' }) }
+  function marcarSalida() { marcarCampo('hora_salida', 'marcado_salida') } // estado es columna generada
 
   if (!sesionLista) return null
   if (!sesion) return <GateTrabajador onIngresar={() => { window.location.href = '/' }} />

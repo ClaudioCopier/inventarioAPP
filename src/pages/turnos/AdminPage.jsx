@@ -58,7 +58,10 @@ function FormularioTurno({ turno, sesion, onGuardado, onCancelar }) {
       hora_almuerzo_inicio: horaAlmuerzoInicio || null,
       hora_almuerzo_fin: horaAlmuerzoFin || null,
       hora_salida: horaSalida || null,
-      estado: horaSalida ? 'cerrado' : 'abierto',
+      // estado es columna generada (2026-08-30, ver
+      // supabase_migration_turnos_estado_generado.sql) -- Postgres la
+      // calcula solo a partir de hora_salida, no se puede ni hace falta
+      // escribirla acá.
     }
 
     const seEstaCerrando = turno.estado === 'abierto' && horaSalida
@@ -132,7 +135,7 @@ function FormularioTurnoNuevo({ workers, sesion, workerIdInicial, fechaInicial, 
         hora_almuerzo_inicio: horaAlmuerzoInicio || null,
         hora_almuerzo_fin: horaAlmuerzoFin || null,
         hora_salida: horaSalida || null,
-        estado: horaSalida ? 'cerrado' : 'abierto',
+        // estado es columna generada, ver el comentario en FormularioTurno.
         marcado_por: 'admin',
         creado_por: sesion.nombre,
       })
