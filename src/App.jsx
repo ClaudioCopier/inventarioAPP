@@ -44,12 +44,16 @@ function Home() {
         <h1>PuntoVerdeAPP</h1>
         <p>Hola, {sesion.nombre} — elige qué hacer.</p>
         <div className="home-links">
-          <Link className="btn btn-primary" to="/trabajador">Inventario</Link>
+          {/* Inventario y Turnos "de trabajador" quedan ocultos para admin
+              (2026-08-30, pedido explícito del usuario) -- admin usa
+              directo las versiones (admin) de cada uno, no necesita
+              también el atajo a la vista de trabajador desde acá. */}
+          {sesion.rol !== 'admin' && <Link className="btn btn-primary" to="/trabajador">Inventario</Link>}
           <Link className="btn btn-primary" to="/vencimientos">Vencimientos</Link>
-          <Link className="btn btn-primary" to="/turnos">Turnos</Link>
-          {sesion.rol === 'admin' && <a className="btn btn-primary" href="/reportes/">Reportes</a>}
+          {sesion.rol !== 'admin' && <Link className="btn btn-primary" to="/turnos">Turnos</Link>}
+          {sesion.rol === 'admin' && <a className="btn btn-primary" href="/reportes/">Reportes (admin)</a>}
           {sesion.rol === 'admin' && <Link className="btn btn-secondary" to="/turnos/admin">Turnos (admin)</Link>}
-          {sesion.rol === 'admin' && <Link className="btn btn-secondary" to="/admin">Panel admin</Link>}
+          {sesion.rol === 'admin' && <Link className="btn btn-secondary" to="/admin">Inventario (admin)</Link>}
           <button type="button" className="btn btn-ghost" onClick={salir}>Salir</button>
         </div>
       </div>
