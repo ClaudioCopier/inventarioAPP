@@ -83,7 +83,7 @@ async function separarLote(lote, cantidades, sesion) {
 // salvo entrando directo a la base. Reutiliza el mismo formulario de 3
 // modos que FormularioLote, pero actualiza en vez de crear, y deja
 // registrado en el log qué valores tenía antes de la corrección.
-function PanelEditar({ lote, sesion, onGuardado, onCancelar }) {
+function PanelEditar({ lote, lotesHermanos, sesion, onGuardado, onFusionado, onCancelar }) {
   const [modo, setModo] = useState(lote.modo || 'completo')
   const [fechaElaboracion, setFechaElaboracion] = useState(lote.fecha_elaboracion || '')
   const [fechaVencimiento, setFechaVencimiento] = useState(lote.fecha_vencimiento || '')
@@ -91,6 +91,35 @@ function PanelEditar({ lote, sesion, onGuardado, onCancelar }) {
   const [avisoPrevioUnidad, setAvisoPrevioUnidad] = useState(lote.aviso_previo_unidad || 'dias')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
+
+  // Mismo detector de "juntar" que FormularioLote (2026-09-05, bug real
+  // reportado: se corrigió la fecha de dos lotes de "RICO MG QUELADO" hasta
+  // dejarlos con la misma fecha exacta, pero como esta lista de hermanos
+  // nunca se le pasaba a PanelEditar, no había forma de juntarlos -- quedaban
+  // duplicados para siempre). Compara en vivo contra lo que se está por
+  // guardar, igual criterio: mismo modo, misma fecha (y mismo aviso previo si
+  // aplica), solo contra hermanos activos.
+  const candidatoFusion = fechaVencimiento
+    ? (lotesHermanos || []).find((l) =>
+        l.estado === 'activo' &&
+        l.modo === modo &&
+        l.fecha_vencimiento === fechaVencimiento &&
+        (modo !== 'solo_vencimiento' || (Number(l.aviso_previo_valor) === Number(avisoPrevioValor) && l.aviso_previo_unidad === avisoPrevioUnidad))
+      )
+    : null
+
+  async function juntarConExistente() {
+    setError('')
+    setGuardando(true)
+    try {
+      await fusionarLotes(lote, candidatoFusion, sesion)
+      onFusionado()
+    } catch (e) {
+      setError('No se pudo juntar: ' + e.message)
+    } finally {
+      setGuardando(false)
+    }
+  }
 
   async function guardar() {
     setError('')
@@ -155,6 +184,17 @@ function PanelEditar({ lote, sesion, onGuardado, onCancelar }) {
 
       {modo === 'omitido' && (
         <p className="hint">Este lote va a quedar marcado como omitido, sin seguimiento.</p>
+      )}
+
+      {candidatoFusion && (
+        <div className="card" style={{ background: 'var(--alert-warn-bg)', marginTop: 12, marginBottom: 0 }}>
+          <p className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+            Ya hay otro lote con esta misma fecha (Lote {candidatoFusion.numero_lote}, {candidatoFusion.cantidad_restante} unidad(es)) — ¿los juntamos en uno solo en vez de dejarlos separados?
+          </p>
+          <button type="button" className="btn btn-primary btn-sm" onClick={juntarConExistente} disabled={guardando}>
+            {guardando ? 'Juntando…' : `Juntar con el Lote ${candidatoFusion.numero_lote}`}
+          </button>
+        </div>
       )}
 
       {error && <div className="error-text">{error}</div>}
@@ -794,8 +834,10 @@ function PantallaCargar() {
               {editandoId && yaCargados.some((l) => l.id === editandoId) && (
                 <PanelEditar
                   lote={yaCargados.find((l) => l.id === editandoId)}
+                  lotesHermanos={(lotes || []).filter((l) => l.id !== editandoId)}
                   sesion={sesion}
                   onGuardado={actualizarLoteEnMemoria}
+                  onFusionado={recargarLotesActual}
                   onCancelar={() => setEditandoId(null)}
                 />
               )}

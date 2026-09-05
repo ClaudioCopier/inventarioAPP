@@ -28,6 +28,33 @@ function puedeOmitir(clase) {
   return clase === 'pendiente' || clase === 'vencido' || clase === 'proximo'
 }
 
+// Agrupar por producto, no por lote (2026-09-05, pedido explícito del
+// usuario: un producto con 2+ lotes en la misma pestaña aparecía como
+// tarjetas separadas y sueltas, sin forma de verlos ni accionarlos juntos).
+// Dentro de una pestaña ya filtrada todos los lotes de un mismo grupo
+// suelen compartir clase -- la excepción es "Todo" (mezcla ok/vencido/
+// próximo/pendiente) -- por eso la urgencia se calcula por lote, y el lote
+// más urgente del grupo es el que decide qué pastilla/fecha mostrar en la
+// tarjeta. "Omitir" en la tarjeta solo toca los lotes que de verdad se
+// pueden omitir dentro del grupo (nunca uno con fecha real "ok", aunque
+// esté mezclado ahí por la pestaña "Todo").
+const ORDEN_URGENCIA = { vencido: 0, proximo: 1, pendiente: 2, ok: 3, omitido: 4 }
+function loteMasUrgente(lotes) {
+  return [...lotes].sort((a, b) => (ORDEN_URGENCIA[a._clase] ?? 9) - (ORDEN_URGENCIA[b._clase] ?? 9))[0]
+}
+function agruparPorProducto(lotesClasificados) {
+  const porCodigo = new Map()
+  for (const l of lotesClasificados) {
+    if (!porCodigo.has(l.codigo)) porCodigo.set(l.codigo, { codigo: l.codigo, descripcion: l.descripcion, lotes: [] })
+    porCodigo.get(l.codigo).lotes.push(l)
+  }
+  return [...porCodigo.values()].map((g) => ({
+    ...g,
+    representante: loteMasUrgente(g.lotes),
+    seleccionables: g.lotes.filter((l) => puedeOmitir(l._clase)),
+  }))
+}
+
 function PantallaLista() {
   const { sesion, sesionLista } = useSesionTrabajador()
   const [lotes, setLotes] = useState(null) // null = cargando
@@ -59,8 +86,15 @@ function PantallaLista() {
   // -- pedido explícito del usuario (2026-08-29): que esté siempre en un
   // solo lugar en vez de repetido en cada pantalla de Vencimientos.
 
-  async function omitir(lote) {
-    setOmitiendo((prev) => ({ ...prev, [lote.id]: true }))
+  // Omitir el grupo entero de una (2026-09-05, pedido explícito del usuario):
+  // un click en la tarjeta de un producto con 2+ lotes omite TODOS sus
+  // lotes de un saque, no uno por uno -- pero solo los que de verdad se
+  // pueden omitir (grupo.seleccionables ya excluye los "ok" que puedan
+  // colarse mezclados en la pestaña "Todo").
+  async function omitirGrupo(grupo) {
+    const ids = grupo.seleccionables.map((l) => l.id)
+    if (!ids.length) return
+    setOmitiendo((prev) => ({ ...prev, [grupo.codigo]: true }))
     const payload = {
       modo: 'omitido',
       // Limpia cualquier fecha que el lote ya tuviera (2026-08-23, pedido
@@ -74,25 +108,28 @@ function PantallaLista() {
       actualizado_por: sesion.nombre,
       actualizado_en: new Date().toISOString(),
     }
-    const { error } = await supabase.from('lotes_vencimiento').update(payload).eq('id', lote.id)
+    const { error } = await supabase.from('lotes_vencimiento').update(payload).in('id', ids)
     if (!error) {
-      await supabase.from('lotes_vencimiento_log').insert({
-        lote_id: lote.id, codigo: lote.codigo, worker_id: sesion.id, worker_nombre: sesion.nombre,
-        accion: 'omitido', detalle: payload,
-      })
-      setLotes((prev) => prev.map((l) => (l.id === lote.id ? { ...l, ...payload } : l)))
+      await supabase.from('lotes_vencimiento_log').insert(
+        ids.map((id) => ({ lote_id: id, codigo: grupo.codigo, worker_id: sesion.id, worker_nombre: sesion.nombre, accion: 'omitido', detalle: payload }))
+      )
+      setLotes((prev) => prev.map((l) => (ids.includes(l.id) ? { ...l, ...payload } : l)))
     } else {
       setMensaje('No se pudo omitir: ' + error.message)
       setMensajeEsError(true)
     }
-    setOmitiendo((prev) => ({ ...prev, [lote.id]: false }))
+    setOmitiendo((prev) => ({ ...prev, [grupo.codigo]: false }))
   }
 
-  function alternarSeleccion(id) {
+  // Selección múltiple por grupo: marcar/desmarcar la tarjeta agrega o
+  // saca del set TODOS los ids seleccionables del producto de una vez.
+  function alternarSeleccionGrupo(grupo) {
     setSeleccionados((prev) => {
       const copia = new Set(prev)
-      if (copia.has(id)) copia.delete(id)
-      else copia.add(id)
+      const ids = grupo.seleccionables.map((l) => l.id)
+      const todosMarcados = ids.length > 0 && ids.every((id) => copia.has(id))
+      if (todosMarcados) ids.forEach((id) => copia.delete(id))
+      else ids.forEach((id) => copia.add(id))
       return copia
     })
   }
@@ -136,22 +173,24 @@ function PantallaLista() {
   // Deshacer un "omitido" (2026-08-23, pedido explícito del usuario): antes
   // no había forma de verlos ni de corregir un click de más -- vuelve a
   // modo pendiente, como un lote recién detectado, para que se le pueda
-  // asignar fecha de nuevo desde cero.
-  async function reactivar(lote) {
-    setOmitiendo((prev) => ({ ...prev, [lote.id]: true }))
+  // asignar fecha de nuevo desde cero. Agrupado por producto (2026-09-05):
+  // en la pestaña Omitidos todos los lotes del grupo comparten esa clase,
+  // así que reactivar la tarjeta reactiva el grupo entero.
+  async function reactivarGrupo(grupo) {
+    const ids = grupo.lotes.map((l) => l.id)
+    setOmitiendo((prev) => ({ ...prev, [grupo.codigo]: true }))
     const payload = { modo: null, omitido_por: null, omitido_en: null, actualizado_por: sesion.nombre, actualizado_en: new Date().toISOString() }
-    const { error } = await supabase.from('lotes_vencimiento').update(payload).eq('id', lote.id)
+    const { error } = await supabase.from('lotes_vencimiento').update(payload).in('id', ids)
     if (!error) {
-      await supabase.from('lotes_vencimiento_log').insert({
-        lote_id: lote.id, codigo: lote.codigo, worker_id: sesion.id, worker_nombre: sesion.nombre,
-        accion: 'reactivado', detalle: {},
-      })
-      setLotes((prev) => prev.map((l) => (l.id === lote.id ? { ...l, ...payload } : l)))
+      await supabase.from('lotes_vencimiento_log').insert(
+        ids.map((id) => ({ lote_id: id, codigo: grupo.codigo, worker_id: sesion.id, worker_nombre: sesion.nombre, accion: 'reactivado', detalle: {} }))
+      )
+      setLotes((prev) => prev.map((l) => (ids.includes(l.id) ? { ...l, ...payload } : l)))
     } else {
       setMensaje('No se pudo reactivar: ' + error.message)
       setMensajeEsError(true)
     }
-    setOmitiendo((prev) => ({ ...prev, [lote.id]: false }))
+    setOmitiendo((prev) => ({ ...prev, [grupo.codigo]: false }))
   }
 
   if (!sesionLista) return null
@@ -174,13 +213,17 @@ function PantallaLista() {
     : porFiltro
   // Orden alfabético (2026-08-23, pedido explícito del usuario) -- antes
   // salían en el orden en que se cargaron de la base, sin ningún criterio
-  // útil para revisar una lista larga.
-  const visibles = [...porBusqueda].sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'))
+  // útil para revisar una lista larga. Agrupado por producto (2026-09-05,
+  // pedido explícito del usuario): un mismo código con 2+ lotes en esta
+  // pestaña aparecía como tarjetas sueltas -- ahora es una sola tarjeta,
+  // que al tocarla lleva al detalle completo del producto (mismo criterio
+  // que "Últimos agregados" en la pantalla principal).
+  const grupos = agruparPorProducto(porBusqueda).sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'))
   const conteos = FILTROS.reduce((acc, f) => {
     acc[f.clave] = f.clave === 'todo' ? clasificados.filter((l) => l._clase !== 'omitido').length : clasificados.filter((l) => l._clase === f.clave).length
     return acc
   }, {})
-  const seleccionablesVisibles = visibles.filter((l) => puedeOmitir(l._clase))
+  const seleccionablesVisibles = grupos.flatMap((g) => g.seleccionables)
 
   return (
     <div className="page venc-page">
@@ -251,58 +294,65 @@ function PantallaLista() {
 
       {lotes === null && <div className="card"><p>Cargando…</p></div>}
 
-      {lotes !== null && visibles.length === 0 && (
+      {lotes !== null && grupos.length === 0 && (
         <div className="card empty-state"><p>No hay nada en esta lista por ahora.</p></div>
       )}
 
-      {lotes !== null && visibles.length > 0 && (
+      {lotes !== null && grupos.length > 0 && (
         <div className="product-list">
-          {visibles.map((l) => {
-            const seleccionable = puedeOmitir(l._clase)
-            const diasSinFecha = l._clase === 'pendiente' ? diasEntre(new Date(l.creado_en), hoy) : null
+          {grupos.map((grupo) => {
+            const r = grupo.representante
+            const seleccionable = grupo.seleccionables.length > 0
+            const lotesPendientes = grupo.lotes.filter((l) => l._clase === 'pendiente')
+            const diasSinFecha = r._clase === 'pendiente' && lotesPendientes.length
+              ? Math.max(...lotesPendientes.map((l) => diasEntre(new Date(l.creado_en), hoy)))
+              : null
             const esViejo = diasSinFecha != null && diasSinFecha >= DIAS_PENDIENTE_VIEJO
+            const cantidadTotal = grupo.lotes.reduce((sum, l) => sum + Number(l.cantidad_restante), 0)
+            const marcado = seleccionable && grupo.seleccionables.every((l) => seleccionados.has(l.id))
+            const etiquetaAccion = grupo.lotes.length > 1 ? `Ver ${grupo.lotes.length} lotes` : (r._clase === 'pendiente' ? 'Poner fecha' : 'Revisar')
             return (
               <div
                 className="product-card"
-                key={l.id}
-                onClick={seleccionable ? () => alternarSeleccion(l.id) : undefined}
+                key={grupo.codigo}
+                onClick={seleccionable ? () => alternarSeleccionGrupo(grupo) : undefined}
                 style={seleccionable ? { cursor: 'pointer' } : undefined}
               >
                 <div className="desc">
                   {seleccionable && (
                     <input
-                      type="checkbox" checked={seleccionados.has(l.id)} onChange={() => alternarSeleccion(l.id)}
+                      type="checkbox" checked={marcado} onChange={() => alternarSeleccionGrupo(grupo)}
                       onClick={(e) => e.stopPropagation()}
                       style={{ marginRight: 10 }}
                     />
                   )}
-                  {l.descripcion}{l.en_vivo && <span className="hint" style={{ marginLeft: 6 }}>(hoy, sin confirmar)</span>}
+                  {grupo.descripcion}{grupo.lotes.some((l) => l.en_vivo) && <span className="hint" style={{ marginLeft: 6 }}>(hoy, sin confirmar)</span>}
                 </div>
                 <div className="sys">
-                  Código: {l.codigo} · Lote {l.numero_lote} · {l.cantidad_restante} unidad(es)
-                  {l._alerta.diasRestantes != null && (l._clase === 'vencido' || l._clase === 'proximo') && (
-                    <> · {l._clase === 'vencido' ? `venció hace ${Math.abs(l._alerta.diasRestantes)} día(s)` : `vence en ${l._alerta.diasRestantes} día(s)`}</>
+                  Código: {grupo.codigo} · {grupo.lotes.length === 1 ? `Lote ${grupo.lotes[0].numero_lote}` : `${grupo.lotes.length} lotes`} · {cantidadTotal} unidad(es)
+                  {r._alerta.diasRestantes != null && (r._clase === 'vencido' || r._clase === 'proximo') && (
+                    <> · {r._clase === 'vencido' ? `venció hace ${Math.abs(r._alerta.diasRestantes)} día(s)` : `vence en ${r._alerta.diasRestantes} día(s)`}</>
                   )}
                   {esViejo && <> · <span style={{ color: 'var(--alert-warn)' }}>hace {diasSinFecha} día(s) sin fecha</span></>}
                 </div>
                 <div className="row-inline lote-footer" style={{ marginTop: 12, justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className={`status-pill ${l._clase === 'vencido' ? 'bad' : l._clase === 'proximo' || l._clase === 'pendiente' ? 'warn' : 'ok'}`} style={{ display: 'inline-flex' }}>
-                    {l._clase === 'pendiente' ? 'Sin fecha' : l._clase === 'vencido' ? 'Vencido' : l._clase === 'proximo' ? 'Próximo a vencer' : l._clase === 'omitido' ? 'Omitido' : 'Con fecha'}
+                  <span className={`status-pill ${r._clase === 'vencido' ? 'bad' : r._clase === 'proximo' || r._clase === 'pendiente' ? 'warn' : 'ok'}`} style={{ display: 'inline-flex' }}>
+                    {r._clase === 'pendiente' ? 'Sin fecha' : r._clase === 'vencido' ? 'Vencido' : r._clase === 'proximo' ? 'Próximo a vencer' : r._clase === 'omitido' ? 'Omitido' : 'Con fecha'}
                   </span>
                   <div className="row-inline lote-acciones" style={{ gap: 8 }}>
-                    {l._clase !== 'omitido' && (
-                      <a className="btn btn-ghost btn-sm" href={`/vencimientos?buscar=${encodeURIComponent(l.codigo)}`} onClick={(e) => e.stopPropagation()}>
-                        {l._clase === 'pendiente' ? 'Poner fecha' : 'Revisar'}
+                    {r._clase !== 'omitido' && (
+                      <a className="btn btn-ghost btn-sm" href={`/vencimientos?buscar=${encodeURIComponent(grupo.codigo)}`} onClick={(e) => e.stopPropagation()}>
+                        {etiquetaAccion}
                       </a>
                     )}
                     {seleccionable && (
-                      <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); omitir(l) }} disabled={omitiendo[l.id]}>
-                        {omitiendo[l.id] ? 'Omitiendo…' : 'Omitir'}
+                      <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); omitirGrupo(grupo) }} disabled={omitiendo[grupo.codigo]}>
+                        {omitiendo[grupo.codigo] ? 'Omitiendo…' : grupo.seleccionables.length > 1 ? `Omitir (${grupo.seleccionables.length})` : 'Omitir'}
                       </button>
                     )}
-                    {l._clase === 'omitido' && (
-                      <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); reactivar(l) }} disabled={omitiendo[l.id]}>
-                        {omitiendo[l.id] ? 'Quitando…' : 'Quitar de omitidos'}
+                    {r._clase === 'omitido' && (
+                      <button className="btn btn-ghost btn-sm" onClick={(e) => { e.stopPropagation(); reactivarGrupo(grupo) }} disabled={omitiendo[grupo.codigo]}>
+                        {omitiendo[grupo.codigo] ? 'Quitando…' : grupo.lotes.length > 1 ? `Quitar ${grupo.lotes.length} de omitidos` : 'Quitar de omitidos'}
                       </button>
                     )}
                   </div>
