@@ -468,29 +468,63 @@ async function traerUltimosAgregados() {
   }
 
   const productos = [...porCodigo.values()].sort((a, b) => (a.creado_en < b.creado_en ? 1 : -1))
-  return { productos: productos.slice(0, 10), totalLotes: recientes.length, totalProductos: productos.length }
+  return { productos, totalLotes: recientes.length, totalProductos: productos.length }
 }
 
+const TAMANOS_PAGINA = [10, 50, 100]
+
+// Paginación (2026-09-05, pedido explícito del usuario: "en el inicio se
+// muestren los 10 de siempre pero haya un filtro para poner cuántos ver...
+// con páginas"). Sigue mostrando 10 por defecto -- el selector solo importa
+// para quien quiera revisar el backlog completo sin ir a otra pantalla.
+// traerUltimosAgregados() ya trae TODOS los productos pendientes (ver
+// comentario de arriba, 2026-09-05) -- acá solo se recorta en memoria,
+// nunca hace falta una consulta nueva al cambiar de página o de tamaño.
 function UltimosAgregados({ refreshKey }) {
   const [datos, setDatos] = useState(null)
+  const [tamanoPagina, setTamanoPagina] = useState(10)
+  const [pagina, setPagina] = useState(0)
 
   useEffect(() => {
     let activo = true
     traerUltimosAgregados().then((data) => { if (activo) setDatos(data) })
+    setPagina(0) // datos nuevos (ej. tras "Actualizar") -- volver siempre a la primera página
     return () => { activo = false }
   }, [refreshKey])
 
   if (!datos || datos.totalProductos === 0) return null
 
-  const { productos, totalLotes, totalProductos } = datos
-  const hayMas = totalProductos > productos.length
+  const { productos: todos, totalLotes, totalProductos } = datos
+  const totalPaginas = Math.max(1, Math.ceil(totalProductos / tamanoPagina))
+  const paginaSegura = Math.min(pagina, totalPaginas - 1)
+  const desde = paginaSegura * tamanoPagina
+  const productos = todos.slice(desde, desde + tamanoPagina)
+
+  function cambiarTamano(n) {
+    setTamanoPagina(n)
+    setPagina(0)
+  }
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <p className="hint" style={{ marginTop: 0 }}>
-        {totalLotes} lote(s) nuevo(s) sin fecha en {totalProductos} producto(s) distinto(s)
-        {hayMas ? ` — mostrando los ${productos.length} más recientes:` : ':'}
-      </p>
+      <div className="row-inline" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <p className="hint" style={{ margin: 0 }}>
+          {totalLotes} lote(s) nuevo(s) sin fecha en {totalProductos} producto(s) distinto(s):
+        </p>
+        {totalProductos > TAMANOS_PAGINA[0] && (
+          <div className="row-inline" style={{ gap: 4, alignItems: 'center' }}>
+            <span className="hint" style={{ margin: 0, fontSize: 12 }}>Ver:</span>
+            {TAMANOS_PAGINA.map((n) => (
+              <button
+                key={n} type="button" className={`btn btn-sm ${tamanoPagina === n ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => cambiarTamano(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="product-list">
         {productos.map((p) => {
           return (
@@ -510,6 +544,17 @@ function UltimosAgregados({ refreshKey }) {
           )
         })}
       </div>
+      {totalPaginas > 1 && (
+        <div className="row-inline" style={{ justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 16 }}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPagina((p) => Math.max(0, p - 1))} disabled={paginaSegura === 0}>
+            Anterior
+          </button>
+          <span className="hint" style={{ margin: 0 }}>Página {paginaSegura + 1} de {totalPaginas}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPagina((p) => Math.min(totalPaginas - 1, p + 1))} disabled={paginaSegura >= totalPaginas - 1}>
+            Siguiente
+          </button>
+        </div>
+      )}
     </div>
   )
 }
