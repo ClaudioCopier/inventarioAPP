@@ -697,7 +697,13 @@ function PantallaCargar() {
   if (!sesion) return <GateTrabajador onIngresar={() => { window.location.href = '/' }} />
 
   const pendientes = (lotes || []).filter((l) => !l.modo && l.estado === 'activo')
-  const yaCargados = (lotes || []).filter((l) => l.modo)
+  // Excluye agotados (2026-09-05, pedido explícito del usuario tras "juntar"
+  // dos lotes de "RICO ACEITE DE OREGANO": el lote de origen queda en
+  // estado='agotado' con 0 unidades para no perder el rastro (ver
+  // fusionarLotes()/separarLote() más arriba), pero mostrarlo acá igual que
+  // uno activo daba la sensación de que la fusión no había funcionado. El
+  // rastro completo sigue disponible en /vencimientos/historial.
+  const yaCargados = (lotes || []).filter((l) => l.modo && l.estado === 'activo')
 
   return (
     <div className="page venc-page">
