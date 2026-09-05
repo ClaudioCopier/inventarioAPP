@@ -182,6 +182,22 @@ p { margin: 0 0 16px; color: var(--text-muted); line-height: 1.5; font-weight: 5
 }
 .buscador-fijo input:focus { outline: none; box-shadow: 0 0 0 4px var(--brand-light), 0 10px 30px rgba(17, 34, 24, 0.15); }
 
+/* Menú flotante de búsqueda en vivo (Vencimientos, 2026-08-30) -- lista de
+   sugerencias que aparece pegada abajo del campo de texto a medida que se
+   escribe, sin empujar el resto de la página. */
+.dropdown-flotante {
+  position: absolute; top: calc(100% - 4px); left: 0; right: 0; z-index: 30;
+  background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+  max-height: 340px; overflow-y: auto; padding: 8px;
+}
+.dropdown-flotante-item {
+  display: block; width: 100%; text-align: left; background: transparent; border: none;
+  border-radius: var(--radius-sm); padding: 12px 14px; cursor: pointer; font-family: inherit;
+}
+.dropdown-flotante-item:hover, .dropdown-flotante-item:focus { background: var(--bg-app); outline: none; }
+.dropdown-flotante-item .desc { font-weight: 700; font-size: 15px; color: var(--text-main); margin-bottom: 2px; }
+.dropdown-flotante-item .sys { font-size: 12px; color: var(--text-muted); margin-bottom: 0; font-weight: 600; }
+
 /* Product Cards */
 .product-list { display: flex; flex-direction: column; gap: 20px; }
 .product-card {
@@ -239,3 +255,61 @@ p { margin: 0 0 16px; color: var(--text-muted); line-height: 1.5; font-weight: 5
 .table-preview th, .table-preview td { border-bottom: 1px solid var(--border); padding: 12px 16px; text-align: left; }
 .table-preview th { background: var(--bg-app); font-weight: 600; color: var(--text-muted); text-transform: uppercase; font-size: 11px;}
 .tabla-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -8px; padding: 0 8px; }
+
+/* Acciones de fila en tablas (Editar/Separar) -- siempre en columna, no solo
+   en mobile: dos botones lado a lado dentro de una celda angosta se pisaban
+   o forzaban la tabla a estirarse más de lo necesario. */
+.acciones-tabla { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+
+/* --------------------------------------------------------------------
+   Vencimientos en celular (2026-08-30, pedido explícito del usuario: "se ve
+   mal todo corrido y poco accesible en celular, es donde mas se usara").
+   Escopado a `.venc-page` a propósito -- Inventario/Turnos/Reportes
+   comparten este mismo styles.css y no fueron parte del pedido, así que
+   estas reglas no les tienen que tocar nada.
+   -------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .venc-page.page { padding: 16px 12px 32px; }
+
+  .venc-page .card { padding: 18px; border-radius: var(--radius-md); }
+  .venc-page .product-card { padding: 18px; }
+
+  /* Topbar: título arriba, botones de navegación abajo en una grilla pareja
+     -- antes quedaban en una sola fila que se cortaba a la mitad o envolvía
+     de forma despareja según cuántos botones tuviera cada pantalla. */
+  .venc-page .topbar { flex-direction: column; align-items: stretch; gap: 14px; margin-bottom: 20px; padding-bottom: 16px; }
+  .venc-page .topbar h1 { font-size: 20px; }
+  .venc-page .topbar-acciones { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .venc-page .topbar-acciones .btn { width: 100%; padding-left: 8px; padding-right: 8px; }
+
+  /* Filtros (Pendientes/Vencidos/Próximos/Todo/Omitidos): fila con scroll
+     horizontal tipo chips, en vez de envolver en varias líneas desprolijas. */
+  .venc-page .filtros-row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -12px 12px; padding: 0 12px 4px; }
+  .venc-page .filtros-row .btn { flex: 0 0 auto; }
+
+  /* "Seleccionar todos" + acciones de selección múltiple: en columna, botones
+     a todo el ancho para no competir por espacio con el contador. */
+  .venc-page .seleccion-row { flex-direction: column; align-items: stretch !important; }
+  .venc-page .seleccion-row .btn { width: 100%; }
+
+  /* Pie de cada producto en la lista (estado + botones "Poner fecha"/
+     "Omitir"): en columna, botones a todo el ancho -- lado a lado quedaban
+     angostos y difíciles de tocar sin errar. */
+  .venc-page .lote-footer { flex-direction: column; align-items: stretch !important; }
+  .venc-page .lote-acciones { width: 100%; }
+  .venc-page .lote-acciones .btn { flex: 1; }
+
+  /* Pares de campos (fecha elaboración/vencimiento, etc.): apilados a todo
+     el ancho en vez de achicarse hasta quedar ilegibles uno al lado del otro. */
+  .venc-page .row-inline .field,
+  .venc-page .row-inline .field.campo-compuesto { min-width: 100%; }
+
+  /* Botones de acción dentro de una tarjeta (Guardar/Cancelar, los 3 modos
+     Completo/Solo vencimiento/Omitir, Confirmar separación/Cancelar): se
+     reparten el ancho completo en vez de quedar chicos y pegados al borde. */
+  .venc-page .card > .btn { width: 100%; }
+  .venc-page .card .row-inline > .btn { flex: 1 1 0; font-size: 13px; padding: 12px 8px; }
+
+  .venc-page .table-preview { font-size: 12px; }
+  .venc-page .table-preview th, .venc-page .table-preview td { padding: 8px 10px; }
+}

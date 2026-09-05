@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient.js'
 import { useSesionTrabajador } from '../../lib/useSesionTrabajador.js'
 import GateTrabajador from '../../components/GateTrabajador.jsx'
 import CampoFecha from '../../components/CampoFecha.jsx'
+import { traerTodasLasFilas } from '../../lib/traerTodasLasFilas.js'
 
 const HOY_ISO = () => new Date().toISOString().slice(0, 10)
 const EPSILON = 0.001
@@ -73,6 +74,98 @@ async function separarLote(lote, cantidades, sesion) {
   for (const n of nuevos) {
     await registrarLog(n.id, lote.codigo, sesion, 'creado_por_separacion', { separado_de_lote: lote.id, cantidad: n.cantidad })
   }
+}
+
+// "Editar" (2026-08-30, pedido explícito del usuario: "nuestros trabajadores
+// se han equivocado algunas veces y no se pueden editar"): un lote ya
+// cargado (modo completo/solo_vencimiento/omitido) quedaba fijo para
+// siempre -- si alguien tocaba mal una fecha no había forma de corregirlo
+// salvo entrando directo a la base. Reutiliza el mismo formulario de 3
+// modos que FormularioLote, pero actualiza en vez de crear, y deja
+// registrado en el log qué valores tenía antes de la corrección.
+function PanelEditar({ lote, sesion, onGuardado, onCancelar }) {
+  const [modo, setModo] = useState(lote.modo || 'completo')
+  const [fechaElaboracion, setFechaElaboracion] = useState(lote.fecha_elaboracion || '')
+  const [fechaVencimiento, setFechaVencimiento] = useState(lote.fecha_vencimiento || '')
+  const [avisoPrevioValor, setAvisoPrevioValor] = useState(lote.aviso_previo_valor || 14)
+  const [avisoPrevioUnidad, setAvisoPrevioUnidad] = useState(lote.aviso_previo_unidad || 'dias')
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState('')
+
+  async function guardar() {
+    setError('')
+    let payload = { actualizado_por: sesion.nombre, actualizado_en: new Date().toISOString() }
+
+    if (modo === 'completo') {
+      if (!fechaElaboracion || !fechaVencimiento) { setError('Completa las dos fechas.'); return }
+      if (fechaVencimiento <= fechaElaboracion) { setError('El vencimiento tiene que ser después de la elaboración.'); return }
+      payload = { ...payload, modo: 'completo', fecha_elaboracion: fechaElaboracion, fecha_vencimiento: fechaVencimiento, aviso_previo_valor: null, aviso_previo_unidad: null, omitido_por: null, omitido_en: null }
+    } else if (modo === 'solo_vencimiento') {
+      if (!fechaVencimiento) { setError('Completa la fecha de vencimiento.'); return }
+      if (!avisoPrevioValor || Number(avisoPrevioValor) <= 0) { setError('Indica con cuánto tiempo de anticipación avisar.'); return }
+      payload = { ...payload, modo: 'solo_vencimiento', fecha_elaboracion: null, fecha_vencimiento: fechaVencimiento, aviso_previo_valor: Number(avisoPrevioValor), aviso_previo_unidad: avisoPrevioUnidad, omitido_por: null, omitido_en: null }
+    } else {
+      payload = { ...payload, modo: 'omitido', omitido_por: sesion.nombre, omitido_en: new Date().toISOString(), fecha_elaboracion: null, fecha_vencimiento: null, aviso_previo_valor: null, aviso_previo_unidad: null }
+    }
+
+    setGuardando(true)
+    const { error: errUpdate } = await supabase.from('lotes_vencimiento').update(payload).eq('id', lote.id)
+    setGuardando(false)
+    if (errUpdate) { setError('No se pudo guardar: ' + errUpdate.message); return }
+    registrarLog(lote.id, lote.codigo, sesion, 'corregido_manual', {
+      anterior: { modo: lote.modo, fecha_elaboracion: lote.fecha_elaboracion, fecha_vencimiento: lote.fecha_vencimiento, aviso_previo_valor: lote.aviso_previo_valor, aviso_previo_unidad: lote.aviso_previo_unidad },
+      nuevo: payload,
+    })
+    onGuardado({ id: lote.id, ...payload })
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 8, marginBottom: 12 }}>
+      <p className="hint" style={{ marginTop: 0 }}>Corregir el registro del Lote {lote.numero_lote}.</p>
+
+      <div className="row-inline" style={{ marginBottom: 16 }}>
+        <button type="button" className={`btn ${modo === 'completo' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setModo('completo')}>Completo</button>
+        <button type="button" className={`btn ${modo === 'solo_vencimiento' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setModo('solo_vencimiento')}>Solo vencimiento</button>
+        <button type="button" className={`btn ${modo === 'omitido' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setModo('omitido')}>Omitir</button>
+      </div>
+
+      {modo === 'completo' && (
+        <div className="row-inline">
+          <CampoFecha label="Fecha de elaboración" value={fechaElaboracion} onChange={setFechaElaboracion} max={HOY_ISO()} />
+          <CampoFecha label="Fecha de vencimiento" value={fechaVencimiento} onChange={setFechaVencimiento} />
+        </div>
+      )}
+
+      {modo === 'solo_vencimiento' && (
+        <div className="row-inline">
+          <CampoFecha label="Fecha de vencimiento" value={fechaVencimiento} onChange={setFechaVencimiento} />
+          <div className="field">
+            <label>Avisar con anticipación</label>
+            <div className="row-inline" style={{ gap: 8 }}>
+              <input type="number" min="1" style={{ width: 80 }} value={avisoPrevioValor} onChange={(e) => setAvisoPrevioValor(e.target.value)} />
+              <select value={avisoPrevioUnidad} onChange={(e) => setAvisoPrevioUnidad(e.target.value)}>
+                <option value="dias">día(s)</option>
+                <option value="semanas">semana(s)</option>
+                <option value="meses">mes(es)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modo === 'omitido' && (
+        <p className="hint">Este lote va a quedar marcado como omitido, sin seguimiento.</p>
+      )}
+
+      {error && <div className="error-text">{error}</div>}
+      <div className="row-inline" style={{ marginTop: 12 }}>
+        <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
+          {guardando ? 'Guardando…' : 'Guardar corrección'}
+        </button>
+        <button className="btn btn-ghost" onClick={onCancelar} disabled={guardando}>Cancelar</button>
+      </div>
+    </div>
+  )
 }
 
 function repartirParejo(total, n) {
@@ -303,15 +396,20 @@ function FormularioLote({ lote, lotesHermanos, sesion, onGuardado, onFusionado, 
 // que en cuanto alguien le pone fecha a un lote, desaparece de acá (aunque
 // el mismo producto tenga otro lote que sí siga pendiente, en cuyo caso
 // sigue apareciendo, solo que ya no cuenta el que se completó).
+// Conteo total (2026-09-05, pedido explícito del usuario: la preview de acá
+// abajo solo mostraba 10 productos, sin decir cuántos lotes nuevos hay en
+// total sin fecha -- imposible saber a simple vista cuánto falta por
+// actualizar). Ya no capea la consulta a 50 candidatos (que además hacía
+// que el conteo total fuera incorrecto apenas hubiera más de 50 pendientes)
+// -- usa traerTodasLasFilas() para traer TODOS los lotes pendientes, igual
+// criterio que ya usa ListaPage.jsx para lo mismo.
 async function traerUltimosAgregados() {
-  const { data: candidatos } = await supabase
-    .from('lotes_vencimiento')
-    .select('id, codigo, descripcion, numero_lote, cantidad_restante, modo, fecha_vencimiento, creado_en')
-    .neq('estado', 'agotado')
-    .is('modo', null)
-    .order('creado_en', { ascending: false })
-    .limit(50)
-  if (!candidatos || !candidatos.length) return []
+  const candidatos = await traerTodasLasFilas(
+    'lotes_vencimiento',
+    'id, codigo, descripcion, numero_lote, cantidad_restante, modo, fecha_vencimiento, creado_en',
+    (q) => q.neq('estado', 'agotado').is('modo', null)
+  )
+  if (!candidatos.length) return { productos: [], totalLotes: 0, totalProductos: 0 }
 
   const { data: viejos } = await supabase
     .from('lotes_vencimiento_log')
@@ -329,25 +427,32 @@ async function traerUltimosAgregados() {
     porCodigo.get(l.codigo).lotes.push(l)
   }
 
-  return [...porCodigo.values()].sort((a, b) => (a.creado_en < b.creado_en ? 1 : -1)).slice(0, 10)
+  const productos = [...porCodigo.values()].sort((a, b) => (a.creado_en < b.creado_en ? 1 : -1))
+  return { productos: productos.slice(0, 10), totalLotes: recientes.length, totalProductos: productos.length }
 }
 
 function UltimosAgregados({ refreshKey }) {
-  const [items, setItems] = useState(null)
+  const [datos, setDatos] = useState(null)
 
   useEffect(() => {
     let activo = true
-    traerUltimosAgregados().then((data) => { if (activo) setItems(data) })
+    traerUltimosAgregados().then((data) => { if (activo) setDatos(data) })
     return () => { activo = false }
   }, [refreshKey])
 
-  if (!items || items.length === 0) return null
+  if (!datos || datos.totalProductos === 0) return null
+
+  const { productos, totalLotes, totalProductos } = datos
+  const hayMas = totalProductos > productos.length
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <p className="hint" style={{ marginTop: 0 }}>Productos nuevos sin fecha de vencimiento todavía:</p>
+      <p className="hint" style={{ marginTop: 0 }}>
+        {totalLotes} lote(s) nuevo(s) sin fecha en {totalProductos} producto(s) distinto(s)
+        {hayMas ? ` — mostrando los ${productos.length} más recientes:` : ':'}
+      </p>
       <div className="product-list">
-        {items.map((p) => {
+        {productos.map((p) => {
           return (
             <a
               key={p.codigo}
@@ -372,13 +477,15 @@ function UltimosAgregados({ refreshKey }) {
 function PantallaCargar() {
   const { sesion, sesionLista } = useSesionTrabajador()
   const [busqueda, setBusqueda] = useState('')
-  const [resultados, setResultados] = useState(null) // null = sin buscar todavía
-  const [buscando, setBuscando] = useState(false)
+  const [sugerencias, setSugerencias] = useState(null) // null = todavía no se escribió nada que buscar
+  const [buscandoSugerencias, setBuscandoSugerencias] = useState(false)
+  const [inputEnfocado, setInputEnfocado] = useState(false)
   const [seleccionado, setSeleccionado] = useState(null)
   const [lotes, setLotes] = useState(null)
   const [cargandoLotes, setCargandoLotes] = useState(false)
   const [mensaje, setMensaje] = useState('')
   const [separandoId, setSeparandoId] = useState(null)
+  const [editandoId, setEditandoId] = useState(null)
   const [actualizando, setActualizando] = useState(false)
   const [mensajeActualizar, setMensajeActualizar] = useState('')
   const [mensajeActualizarEsError, setMensajeActualizarEsError] = useState(false)
@@ -438,27 +545,53 @@ function PantallaCargar() {
     }, 480000)
   }
 
-  async function buscar(e, terminoForzado) {
-    e?.preventDefault()
-    const termino = (terminoForzado ?? busqueda).trim()
-    if (!termino) return
-    setBuscando(true)
-    setSeleccionado(null)
-    const { data, error } = await supabase
-      .from('products')
-      .select('codigo, descripcion, inventario_sistema')
-      .or(`codigo.ilike.%${termino}%,descripcion.ilike.%${termino}%`)
-      .order('descripcion', { ascending: true })
-      .limit(25)
-    setBuscando(false)
-    if (error) { setMensaje('Error al buscar: ' + error.message); return }
-    setResultados(data || [])
+  // Saca el "?buscar=..." de la URL (2026-08-30, bug real reportado: al
+  // buscar otra cosa mientras se estaba viendo un producto llegado por link
+  // directo, la URL se quedaba apuntando al código viejo -- un refresh
+  // volvía a abrir ESE producto en vez de quedarse en la búsqueda nueva).
+  function limpiarUrlBuscar() {
+    if (!window.location.search) return
+    window.history.replaceState(null, '', window.location.pathname)
+  }
+
+  // Menú flotante de búsqueda en vivo (2026-08-30, pedido explícito del
+  // usuario: "para marcaje rápido... poder desde dentro de un producto...
+  // buscar inmediatamente otro" y que la barra "vaya filtrando" a medida que
+  // se escribe, en vez de tener que apretar "Buscar" y salir de la ficha del
+  // producto actual). Con debounce de 250ms para no disparar una consulta
+  // por cada tecla. Elegir una sugerencia llama a elegirProducto() directo,
+  // que no depende de que `seleccionado` esté vacío -- así reemplaza la
+  // ficha actual por la del producto elegido sin pasos intermedios.
+  useEffect(() => {
+    const termino = busqueda.trim()
+    if (termino.length < 2) { setSugerencias(null); setBuscandoSugerencias(false); return }
+    setBuscandoSugerencias(true)
+    const timer = setTimeout(async () => {
+      const { data, error } = await supabase
+        .from('products')
+        .select('codigo, descripcion, inventario_sistema')
+        .or(`codigo.ilike.%${termino}%,descripcion.ilike.%${termino}%`)
+        .order('descripcion', { ascending: true })
+        .limit(30)
+      setBuscandoSugerencias(false)
+      if (!error) setSugerencias(data || [])
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [busqueda])
+
+  function elegirSugerencia(producto) {
+    limpiarUrlBuscar()
+    setBusqueda('')
+    setSugerencias(null)
+    setInputEnfocado(false)
+    elegirProducto(producto)
   }
 
   async function elegirProducto(producto) {
     setSeleccionado(producto)
     setMensaje('')
     setSeparandoId(null)
+    setEditandoId(null)
     setCargandoLotes(true)
     const { data, error } = await supabase
       .from('lotes_vencimiento')
@@ -472,17 +605,20 @@ function PantallaCargar() {
 
   function recargarLotesActual() {
     setSeparandoId(null)
+    setEditandoId(null)
     if (seleccionado) elegirProducto(seleccionado)
   }
 
-  // Cuando un FormularioLote guarda un cambio simple (fecha o "omitir") ya
-  // sabemos el resultado exacto sin volver a preguntarle a Supabase -- pedido
-  // explícito del usuario (2026-08-29): recargarLotesActual() volvía a traer
-  // TODOS los lotes del producto por la red, agregando un viaje de ida y
-  // vuelta más a un "Guardar" que ya tenía que esperar el update en sí.
-  // Fusionar/separar sí siguen recargando entero porque tocan más de un lote.
+  // Cuando un FormularioLote/PanelEditar guarda un cambio simple (fecha o
+  // "omitir") ya sabemos el resultado exacto sin volver a preguntarle a
+  // Supabase -- pedido explícito del usuario (2026-08-29): recargarLotesActual()
+  // volvía a traer TODOS los lotes del producto por la red, agregando un
+  // viaje de ida y vuelta más a un "Guardar" que ya tenía que esperar el
+  // update en sí. Fusionar/separar sí siguen recargando entero porque tocan
+  // más de un lote.
   function actualizarLoteEnMemoria(loteActualizado) {
     setLotes((prev) => (prev || []).map((l) => (l.id === loteActualizado.id ? { ...l, ...loteActualizado } : l)))
+    setEditandoId(null)
   }
 
   // Llegada desde ListaPage.jsx ("Cargar fecha" en una fila puntual) o desde
@@ -493,20 +629,16 @@ function PantallaCargar() {
   // igualdad (no por texto parcial) y entra directo a la ficha del producto,
   // sin ese paso intermedio.
   async function buscarYAbrirDirecto(codigo) {
-    setBuscando(true)
     setSeleccionado(null)
     const { data, error } = await supabase
       .from('products')
       .select('codigo, descripcion, inventario_sistema')
       .eq('codigo', codigo)
       .limit(1)
-    setBuscando(false)
     if (error) { setMensaje('Error al buscar: ' + error.message); return }
     if (data && data.length) {
-      setResultados(data)
       elegirProducto(data[0])
     } else {
-      setResultados([])
       setMensaje(`No se encontró el producto con código ${codigo}.`)
     }
   }
@@ -528,13 +660,13 @@ function PantallaCargar() {
   const yaCargados = (lotes || []).filter((l) => l.modo)
 
   return (
-    <div className="page">
+    <div className="page venc-page">
       <div className="topbar">
         <div>
           <div className="eyebrow">Vencimientos — {sesion.nombre}</div>
           <h1>Cargar producto</h1>
         </div>
-        <div className="row-inline" style={{ gap: 8 }}>
+        <div className="row-inline topbar-acciones" style={{ gap: 8 }}>
           <a className="btn btn-ghost" href="/vencimientos">Inicio</a>
           <a className="btn btn-ghost" href="/vencimientos/lista">Ver lista completa</a>
           <a className="btn btn-ghost" href="/vencimientos/historial">Historial</a>
@@ -550,33 +682,44 @@ function PantallaCargar() {
 
       {!seleccionado && <UltimosAgregados refreshKey={refreshKey} />}
 
-      <form className="card" onSubmit={buscar}>
-        <div className="field" style={{ marginBottom: 12 }}>
+      {/* Menú flotante de búsqueda en vivo (2026-08-30, pedido explícito del
+          usuario): siempre visible, incluso adentro de la ficha de un
+          producto -- para marcaje rápido, elegir otro de acá salta directo
+          sin tener que "volver a buscar" primero. */}
+      <div className="card" style={{ position: 'relative', overflow: 'visible' }}>
+        <div className="field" style={{ marginBottom: 0 }}>
           <label htmlFor="busqueda">Buscar por código o nombre</label>
-          <input id="busqueda" type="text" autoFocus value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Ej: 7801234567890 o ASHWAGANDHA" />
+          <input
+            id="busqueda" type="text" value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            onFocus={() => setInputEnfocado(true)}
+            onBlur={() => setInputEnfocado(false)}
+            placeholder="Ej: 7801234567890 o ASHWAGANDHA"
+            autoComplete="off"
+          />
         </div>
-        <button className="btn btn-primary" type="submit" disabled={buscando}>{buscando ? 'Buscando…' : 'Buscar'}</button>
-      </form>
 
-      {mensaje && <div className="card"><p className="error-text">{mensaje}</p></div>}
-
-      {resultados && resultados.length === 0 && (
-        <div className="card empty-state"><p>No se encontró ningún producto con ese código o nombre.</p></div>
-      )}
-
-      {resultados && resultados.length > 0 && !seleccionado && (
-        <div className="card">
-          <p className="hint" style={{ marginTop: 0 }}>{resultados.length} resultado(s) — tocá uno para ver sus lotes.</p>
-          <div className="product-list">
-            {resultados.map((p) => (
-              <button key={p.codigo} type="button" className="product-card" style={{ textAlign: 'left', cursor: 'pointer', border: 'none', width: '100%' }} onClick={() => elegirProducto(p)}>
+        {inputEnfocado && busqueda.trim().length >= 2 && (
+          <div className="dropdown-flotante">
+            {buscandoSugerencias && <div className="dropdown-flotante-item hint">Buscando…</div>}
+            {!buscandoSugerencias && sugerencias && sugerencias.length === 0 && (
+              <div className="dropdown-flotante-item hint">No se encontró ningún producto con ese código o nombre.</div>
+            )}
+            {!buscandoSugerencias && sugerencias && sugerencias.map((p) => (
+              <button
+                key={p.codigo} type="button" className="dropdown-flotante-item"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => elegirSugerencia(p)}
+              >
                 <div className="desc">{p.descripcion}</div>
                 <div className="sys">Código: {p.codigo} · Existencia: {p.inventario_sistema}</div>
               </button>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {mensaje && <div className="card"><p className="error-text">{mensaje}</p></div>}
 
       {seleccionado && (
         <>
@@ -586,7 +729,7 @@ function PantallaCargar() {
                 <strong>{seleccionado.descripcion}</strong>
                 <p className="hint" style={{ margin: 0 }}>Código: {seleccionado.codigo} · Existencia actual: {seleccionado.inventario_sistema}</p>
               </div>
-              <button className="btn btn-ghost" onClick={() => { setSeleccionado(null); setLotes(null); setSeparandoId(null) }}>Volver a buscar</button>
+              <button className="btn btn-ghost" onClick={() => { limpiarUrlBuscar(); setSeleccionado(null); setLotes(null); setSeparandoId(null); setEditandoId(null); setBusqueda('') }}>Volver a buscar</button>
             </div>
           </div>
 
@@ -634,17 +777,28 @@ function PantallaCargar() {
                         <td>{l.fecha_vencimiento || '—'}</td>
                         <td>{l.estado === 'agotado' ? 'Agotado' : 'Activo'}</td>
                         <td>
-                          {l.estado === 'activo' && Number(l.cantidad_restante) > EPSILON && (
-                            separandoId === l.id ? null : (
-                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSeparandoId(l.id)}>Separar</button>
-                            )
-                          )}
+                          <div className="acciones-tabla">
+                            {editandoId === l.id ? null : (
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setEditandoId(l.id); setSeparandoId(null) }}>Editar</button>
+                            )}
+                            {l.estado === 'activo' && Number(l.cantidad_restante) > EPSILON && separandoId !== l.id && (
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setSeparandoId(l.id); setEditandoId(null) }}>Separar</button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {editandoId && yaCargados.some((l) => l.id === editandoId) && (
+                <PanelEditar
+                  lote={yaCargados.find((l) => l.id === editandoId)}
+                  sesion={sesion}
+                  onGuardado={actualizarLoteEnMemoria}
+                  onCancelar={() => setEditandoId(null)}
+                />
+              )}
               {separandoId && yaCargados.some((l) => l.id === separandoId) && (
                 <PanelSeparar
                   lote={yaCargados.find((l) => l.id === separandoId)}

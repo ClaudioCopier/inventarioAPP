@@ -14,7 +14,8 @@ const ACCION_LABEL = {
   omitido: 'Omitió',
   reactivado: 'Quitó de omitidos',
   creado_entrada: 'Entrada detectada (cierre)',
-  creado_devolucion: 'Devolución detectada (cierre)',
+  creado_devolucion: 'Devolución detectada (cierre) -- motor anterior',
+  reingreso_devolucion: 'Devolución repuesta al lote (cierre)',
   creado_ajuste: 'Ajuste detectado (cierre)',
   creado_en_vivo: 'Entrada detectada (hoy, sin confirmar)',
   creado_reconciliacion: 'Detectado (motor anterior)',
@@ -35,11 +36,23 @@ function PantallaHistorial() {
   const [mensaje, setMensaje] = useState('')
   const [busqueda, setBusqueda] = useState('')
 
+  // Pedido explícito del usuario (2026-09-05): que el historial solo
+  // muestre lo que hizo una persona, no lo que detecta el motor automático
+  // solo (entradas de cierre, ventas descontadas, etc.) -- esas ya se
+  // pueden seguir desde el propio backend si hace falta, acá lo que importa
+  // es la trazabilidad de quién tocó qué. `worker_id` viene null solo en
+  // las acciones que dispara agente-servidor (ver lib/vencimientos.js),
+  // nunca en las que dispara esta app -- filtrar por eso alcanza sin tener
+  // que enumerar cada `accion` automática a mano. El filtro va en la
+  // consulta, no después de traer los datos, para que 300 filas manuales
+  // reales quepan en el límite en vez de perderse detrás de filas
+  // automáticas (el motor corre mucho más seguido que un trabajador).
   useEffect(() => {
     if (!sesion) return
     supabase
       .from('lotes_vencimiento_log')
       .select('id, codigo, worker_nombre, accion, creado_en, lotes_vencimiento(numero_lote, descripcion)')
+      .not('worker_id', 'is', null)
       .order('id', { ascending: false })
       .limit(300)
       .then(({ data, error }) => {
@@ -59,20 +72,20 @@ function PantallaHistorial() {
   })
 
   return (
-    <div className="page">
+    <div className="page venc-page">
       <div className="topbar">
         <div>
           <div className="eyebrow">Vencimientos — {sesion.nombre}</div>
           <h1>Historial</h1>
         </div>
-        <div className="row-inline" style={{ gap: 8 }}>
+        <div className="row-inline topbar-acciones" style={{ gap: 8 }}>
           <a className="btn btn-ghost" href="/vencimientos">Inicio</a>
           <a className="btn btn-ghost" href="/vencimientos/lista">Ver lista</a>
           <a className="btn btn-ghost" href="/">Salir</a>
         </div>
       </div>
 
-      <p className="hint">Últimos 300 movimientos, más reciente primero — quién cargó qué fecha, qué se omitió, y qué detectó el sistema solo.</p>
+      <p className="hint">Últimos 300 movimientos hechos por una persona, más reciente primero — quién cargó qué fecha, qué se omitió, qué se corrigió. No incluye lo que detecta el motor automático solo (entradas, ventas descontadas, etc.).</p>
 
       <div className="field" style={{ marginBottom: 12, maxWidth: 360 }}>
         <input type="text" placeholder="Filtrar por producto, código o persona…" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />

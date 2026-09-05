@@ -183,13 +183,13 @@ function PantallaLista() {
   const seleccionablesVisibles = visibles.filter((l) => puedeOmitir(l._clase))
 
   return (
-    <div className="page">
+    <div className="page venc-page">
       <div className="topbar">
         <div>
           <div className="eyebrow">Vencimientos — {sesion.nombre}</div>
           <h1>Lista completa</h1>
         </div>
-        <div className="row-inline" style={{ gap: 8 }}>
+        <div className="row-inline topbar-acciones" style={{ gap: 8 }}>
           <a className="btn btn-ghost" href="/vencimientos">Inicio</a>
           <a className="btn btn-ghost" href="/vencimientos/historial">Historial</a>
           <a className="btn btn-ghost" href="/">Salir</a>
@@ -200,7 +200,7 @@ function PantallaLista() {
 
       {mensaje && <div className="card"><p className={mensajeEsError ? 'error-text' : ''}>{mensaje}</p></div>}
 
-      <div className="row-inline" style={{ marginBottom: 12 }}>
+      <div className="row-inline filtros-row" style={{ marginBottom: 12 }}>
         {FILTROS.map((f) => (
           <button
             key={f.clave} type="button" className={`btn ${filtro === f.clave ? 'btn-primary' : 'btn-ghost'}`}
@@ -219,7 +219,7 @@ function PantallaLista() {
       </div>
 
       {seleccionablesVisibles.length > 0 && (
-        <div className="row-inline" style={{ marginBottom: 12, alignItems: 'center', gap: 12 }}>
+        <div className="row-inline seleccion-row" style={{ marginBottom: 12, alignItems: 'center', gap: 12 }}>
           <label className="row-inline" style={{ gap: 6, alignItems: 'center', cursor: 'pointer' }}>
             <input
               type="checkbox"
@@ -285,11 +285,11 @@ function PantallaLista() {
                   )}
                   {esViejo && <> · <span style={{ color: 'var(--alert-warn)' }}>hace {diasSinFecha} día(s) sin fecha</span></>}
                 </div>
-                <div className="row-inline" style={{ marginTop: 12, justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="row-inline lote-footer" style={{ marginTop: 12, justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className={`status-pill ${l._clase === 'vencido' ? 'bad' : l._clase === 'proximo' || l._clase === 'pendiente' ? 'warn' : 'ok'}`} style={{ display: 'inline-flex' }}>
                     {l._clase === 'pendiente' ? 'Sin fecha' : l._clase === 'vencido' ? 'Vencido' : l._clase === 'proximo' ? 'Próximo a vencer' : l._clase === 'omitido' ? 'Omitido' : 'Con fecha'}
                   </span>
-                  <div className="row-inline" style={{ gap: 8 }}>
+                  <div className="row-inline lote-acciones" style={{ gap: 8 }}>
                     {l._clase !== 'omitido' && (
                       <a className="btn btn-ghost btn-sm" href={`/vencimientos?buscar=${encodeURIComponent(l.codigo)}`} onClick={(e) => e.stopPropagation()}>
                         {l._clase === 'pendiente' ? 'Poner fecha' : 'Revisar'}
