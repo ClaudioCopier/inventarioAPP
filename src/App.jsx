@@ -9,6 +9,7 @@ import HistorialPage from './pages/vencimientos/HistorialPage.jsx'
 import MarcarPage from './pages/turnos/MarcarPage.jsx'
 import TurnosAdminPage from './pages/turnos/AdminPage.jsx'
 import TurnosHistorialPage from './pages/turnos/HistorialPage.jsx'
+import ClubPage from './pages/club/ClubPage.jsx'
 import { useSesionTrabajador } from './lib/useSesionTrabajador.js'
 
 // Portal (2026-08-16) -- pedido explícito del usuario: "separar e integrar".
@@ -50,6 +51,7 @@ function Home() {
               también el atajo a la vista de trabajador desde acá. */}
           {sesion.rol !== 'admin' && <Link className="btn btn-primary" to="/trabajador">Inventario</Link>}
           <Link className="btn btn-primary" to="/vencimientos">Vencimientos</Link>
+          <Link className="btn btn-primary" to="/club">Club Punto Verde</Link>
           {sesion.rol !== 'admin' && <Link className="btn btn-primary" to="/turnos">Turnos</Link>}
           {sesion.rol === 'admin' && <a className="btn btn-primary" href="/reportes/">Reportes (admin)</a>}
           {sesion.rol === 'admin' && <Link className="btn btn-secondary" to="/turnos/admin">Turnos (admin)</Link>}
@@ -73,6 +75,7 @@ export default function App() {
         <Route path="/vencimientos" element={<CargarPage />} />
         <Route path="/vencimientos/lista" element={<ListaPage />} />
         <Route path="/vencimientos/historial" element={<HistorialPage />} />
+        <Route path="/club" element={<ClubPage />} />
         <Route path="/turnos" element={<MarcarPage />} />
         <Route path="/turnos/admin" element={<TurnosAdminPage />} />
         <Route path="/turnos/historial" element={<TurnosHistorialPage />} />
