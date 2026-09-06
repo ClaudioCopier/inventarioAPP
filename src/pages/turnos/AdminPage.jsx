@@ -332,7 +332,7 @@ function SeccionTurnos({ workers, sesion }) {
                         </p>
                         {comision?.calculado_en && (
                           <p className="hint" style={{ margin: '4px 0 0' }}>
-                            Bruto {formatoMonto(comision.bruto)} · Neto {formatoMonto(comision.neto)} · Ganancia {formatoMonto(comision.ganancia)} · Comisión ({comision.comision_porcentaje}%) {formatoMonto(comision.comision_monto)}
+                            Bruto {formatoMonto(comision.bruto)} · Neto {formatoMonto(comision.neto)} · Comisión ({comision.comision_porcentaje}%) {formatoMonto(comision.comision_monto)}
                           </p>
                         )}
                       </div>
@@ -565,7 +565,7 @@ function SeccionCalcular({ workers, sesion }) {
       {resultado && (
         <div className="tabla-scroll" style={{ marginTop: 12 }}>
           <p className="hint" style={{ marginTop: 0 }}>
-            Total bruto {formatoMonto(resultado.totalBruto)} · Total neto {formatoMonto(resultado.totalNeto)} · Total ganancia {formatoMonto(resultado.totalGanancia)} · Total comisión {formatoMonto(resultado.totalComision)}
+            Total bruto {formatoMonto(resultado.totalBruto)} · Total neto {formatoMonto(resultado.totalNeto)} · Total comisión {formatoMonto(resultado.totalComision)}
           </p>
         </div>
       )}

@@ -552,7 +552,7 @@ async function cargarComisiones(periodo) {
   // (turnos.fecha), soportado por PostgREST.
   const { data, error } = await supabase
     .from('turnos_comision')
-    .select('bruto, neto, ganancia, comision_monto, calculado_en, turnos!inner(worker_nombre, fecha)')
+    .select('bruto, neto, comision_monto, calculado_en, turnos!inner(worker_nombre, fecha)')
     .gte('turnos.fecha', periodo.desde)
     .lte('turnos.fecha', periodo.hasta)
     .not('calculado_en', 'is', null)
@@ -562,13 +562,12 @@ async function cargarComisiones(periodo) {
   for (const t of data || []) {
     const nombre = t.turnos?.worker_nombre || '—'
     if (!porTrabajador.has(nombre)) {
-      porTrabajador.set(nombre, { trabajador: nombre, turnos: 0, bruto: 0, neto: 0, ganancia: 0, comision: 0 })
+      porTrabajador.set(nombre, { trabajador: nombre, turnos: 0, bruto: 0, neto: 0, comision: 0 })
     }
     const acc = porTrabajador.get(nombre)
     acc.turnos += 1
     acc.bruto += Number(t.bruto || 0)
     acc.neto += Number(t.neto || 0)
-    acc.ganancia += Number(t.ganancia || 0)
     acc.comision += Number(t.comision_monto || 0)
   }
   const filas = [...porTrabajador.values()].sort((a, b) => b.comision - a.comision)
@@ -587,9 +586,9 @@ function renderComisionesUI() {
   if (!comisionesVisibles) return
 
   renderTable('comisionesResumen',
-    [{ label: 'Trabajador' }, { label: 'Turnos', num: true }, { label: 'Bruto', num: true }, { label: 'Neto', num: true }, { label: 'Ganancia', num: true }, { label: 'Comisión', num: true }],
+    [{ label: 'Trabajador' }, { label: 'Turnos', num: true }, { label: 'Bruto', num: true }, { label: 'Neto', num: true }, { label: 'Comisión', num: true }],
     datos.filas,
-    (f) => `<tr><td>${f.trabajador}</td><td class="num">${num(f.turnos)}</td><td class="num">${money(f.bruto)}</td><td class="num">${money(f.neto)}</td><td class="num">${money(f.ganancia)}</td><td class="num">${money(f.comision)}</td></tr>`,
+    (f) => `<tr><td>${f.trabajador}</td><td class="num">${num(f.turnos)}</td><td class="num">${money(f.bruto)}</td><td class="num">${money(f.neto)}</td><td class="num">${money(f.comision)}</td></tr>`,
     'Sin turnos calculados en este periodo -- entrá a Turnos para calcularlos.'
   )
 }
