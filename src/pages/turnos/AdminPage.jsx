@@ -480,6 +480,204 @@ function SeccionHorasContrato({ workers, onGuardado }) {
   )
 }
 
+function inicioDeSemana(d) {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  const dia = (x.getDay() + 6) % 7 // lunes = 0
+  x.setDate(x.getDate() - dia)
+  return x
+}
+function sumarDias(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+function fechaISOLocal(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+const DIAS_SEMANA_LARGO = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+// Horario programado semanal (2026-09-05, pedido explícito del usuario:
+// "los trabajadores marcan a des-horas... llegan antes pero no empiezan a
+// trabajar hasta la hora real"). El admin precarga, semana a semana, la
+// hora de entrada/salida ESPERADA de cada trabajador para cada día -- eso
+// es lo que usa el cálculo de comisión y de horas contra el contrato,
+// nunca el marcaje real (ver ventanasDeTurno()/horasEfectivas()). El
+// marcaje real sigue siendo el registro de presencia/asistencia de
+// siempre, solo deja de mover el número.
+//
+// "Replicar semana anterior" (pedido explícito del usuario) solo llena el
+// formulario en pantalla con los horarios de la semana pasada -- no guarda
+// nada solo -- para poder revisar/ajustar un día puntual (ej. alguien pide
+// el día libre) antes de confirmar con "Guardar semana".
+function SeccionHorarioProgramado({ workers, sesion }) {
+  const [workerId, setWorkerId] = useState('')
+  const [inicioSemanaMs, setInicioSemanaMs] = useState(() => inicioDeSemana(new Date()).getTime())
+  const [filas, setFilas] = useState(null) // null = sin trabajador elegido o cargando
+  const [guardando, setGuardando] = useState(false)
+  const [mensaje, setMensaje] = useState('')
+  const [mensajeEsError, setMensajeEsError] = useState(false)
+
+  const dias = Array.from({ length: 7 }, (_, i) => sumarDias(new Date(inicioSemanaMs), i))
+
+  const cargar = useCallback(async () => {
+    setMensaje('')
+    if (!workerId) { setFilas(null); return }
+    setFilas(null)
+    const desde = fechaISOLocal(dias[0])
+    const hasta = fechaISOLocal(dias[6])
+    const { data, error } = await supabase
+      .from('turnos_horario_programado')
+      .select('*')
+      .eq('worker_id', workerId)
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+    if (error) { setMensaje('No se pudo cargar: ' + error.message); setMensajeEsError(true); setFilas([]); return }
+    const porFecha = new Map((data || []).map((h) => [h.fecha, h]))
+    setFilas(
+      dias.map((d) => {
+        const iso = fechaISOLocal(d)
+        const h = porFecha.get(iso)
+        return { fecha: iso, id: h?.id || null, horaEntrada: h?.hora_entrada_programada || '', horaSalida: h?.hora_salida_programada || '' }
+      })
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workerId, inicioSemanaMs])
+
+  useEffect(() => { cargar() }, [cargar])
+
+  function actualizarFila(i, campo, valor) {
+    setFilas((prev) => prev.map((f, j) => (j === i ? { ...f, [campo]: valor } : f)))
+  }
+
+  // Solo llena el formulario en memoria con lo que había la semana pasada
+  // (mismo día de la semana, trasladado a la fecha de esta semana) --
+  // todavía hace falta "Guardar semana" para que quede.
+  async function replicarSemanaAnterior() {
+    const inicioAnterior = sumarDias(new Date(inicioSemanaMs), -7)
+    const desde = fechaISOLocal(inicioAnterior)
+    const hasta = fechaISOLocal(sumarDias(inicioAnterior, 6))
+    const { data, error } = await supabase
+      .from('turnos_horario_programado')
+      .select('fecha, hora_entrada_programada, hora_salida_programada')
+      .eq('worker_id', workerId)
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+    if (error) { setMensaje('No se pudo traer la semana anterior: ' + error.message); setMensajeEsError(true); return }
+    const porFecha = new Map((data || []).map((h) => [h.fecha, h]))
+    setFilas((prev) =>
+      prev.map((f, i) => {
+        const fechaAnterior = fechaISOLocal(sumarDias(inicioAnterior, i))
+        const h = porFecha.get(fechaAnterior)
+        if (!h) return f
+        const trasladar = (iso) => {
+          const origen = new Date(iso)
+          const destino = new Date(f.fecha + 'T00:00:00')
+          destino.setHours(origen.getHours(), origen.getMinutes(), 0, 0)
+          return destino.toISOString()
+        }
+        return { ...f, horaEntrada: trasladar(h.hora_entrada_programada), horaSalida: trasladar(h.hora_salida_programada) }
+      })
+    )
+    setMensaje('Semana anterior cargada acá abajo -- revisá y "Guardar semana" para confirmar.')
+    setMensajeEsError(false)
+  }
+
+  async function guardar() {
+    for (const f of filas) {
+      if ((f.horaEntrada && !f.horaSalida) || (!f.horaEntrada && f.horaSalida)) {
+        setMensaje(`Completá entrada y salida (o dejá las dos vacías) para ${fechaCorta(f.fecha)}.`)
+        setMensajeEsError(true)
+        return
+      }
+    }
+    setMensaje('')
+    setGuardando(true)
+    const ahora = new Date().toISOString()
+    const paraGuardar = filas.filter((f) => f.horaEntrada && f.horaSalida)
+    const paraBorrar = filas.filter((f) => f.id && !f.horaEntrada && !f.horaSalida)
+    if (paraGuardar.length) {
+      const { error } = await supabase.from('turnos_horario_programado').upsert(
+        paraGuardar.map((f) => ({
+          worker_id: workerId, fecha: f.fecha,
+          hora_entrada_programada: f.horaEntrada, hora_salida_programada: f.horaSalida,
+          creado_por: sesion.nombre, actualizado_por: sesion.nombre, actualizado_en: ahora,
+        })),
+        { onConflict: 'worker_id,fecha' }
+      )
+      if (error) { setMensaje('No se pudo guardar: ' + error.message); setMensajeEsError(true); setGuardando(false); return }
+    }
+    if (paraBorrar.length) {
+      const { error } = await supabase.from('turnos_horario_programado').delete().in('id', paraBorrar.map((f) => f.id))
+      if (error) { setMensaje('No se pudo guardar: ' + error.message); setMensajeEsError(true); setGuardando(false); return }
+    }
+    setGuardando(false)
+    setMensaje('Horario de la semana guardado.')
+    setMensajeEsError(false)
+    cargar()
+  }
+
+  function fechaCorta(iso) {
+    const d = new Date(iso + 'T00:00:00')
+    return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })
+  }
+
+  return (
+    <div className="card">
+      <p className="hint" style={{ marginTop: 0 }}>Horario programado</p>
+      <p className="hint">
+        El horario que cargues acá es el que se usa SIEMPRE para calcular venta/comisión y horas de contrato --
+        no importa a qué hora exacta marque el trabajador su entrada o salida real. Un día sin horario cargado
+        sigue usando el marcaje real, como antes.
+      </p>
+
+      <div className="field" style={{ minWidth: 200, marginBottom: 12 }}>
+        <label>Trabajador</label>
+        <select value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+          <option value="">Elegir…</option>
+          {workers.map((w) => <option key={w.id} value={w.id}>{w.nombre}</option>)}
+        </select>
+      </div>
+
+      {workerId && (
+        <>
+          <div className="row-inline" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+            <div className="row-inline" style={{ gap: 8, alignItems: 'center' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setInicioSemanaMs((ms) => sumarDias(new Date(ms), -7).getTime())}>‹ Semana anterior</button>
+              <strong>Semana del {fechaCorta(fechaISOLocal(dias[0]))} al {fechaCorta(fechaISOLocal(dias[6]))}</strong>
+              <button className="btn btn-ghost btn-sm" onClick={() => setInicioSemanaMs((ms) => sumarDias(new Date(ms), 7).getTime())}>Semana siguiente ›</button>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={replicarSemanaAnterior} disabled={!filas}>Replicar semana anterior</button>
+          </div>
+
+          {mensaje && <p className={mensajeEsError ? 'error-text' : 'hint'}>{mensaje}</p>}
+
+          {!filas && <p>Cargando…</p>}
+
+          {filas && (
+            <>
+              <div className="tabla-scroll">
+                <table className="table-preview">
+                  <thead><tr><th>Día</th><th>Entrada</th><th>Salida</th></tr></thead>
+                  <tbody>
+                    {filas.map((f, i) => (
+                      <tr key={f.fecha}>
+                        <td>{DIAS_SEMANA_LARGO[i]}<br /><span className="hint">{fechaCorta(f.fecha)}</span></td>
+                        <td><CampoHora value={f.horaEntrada} onChange={(v) => actualizarFila(i, 'horaEntrada', v)} fecha={f.fecha} /></td>
+                        <td><CampoHora value={f.horaSalida} onChange={(v) => actualizarFila(i, 'horaSalida', v)} fecha={f.fecha} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={guardar} disabled={guardando}>
+                {guardando ? 'Guardando…' : 'Guardar semana'}
+              </button>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function SeccionCalcular({ workers, sesion }) {
   const [workerId, setWorkerId] = useState('')
   const [desde, setDesde] = useState(hace(13))
@@ -629,6 +827,7 @@ export default function TurnosAdminPage() {
 
       <SeccionTurnos workers={workers} sesion={sesion} />
       <SeccionHorasContrato workers={workers} onGuardado={cargarWorkers} />
+      <SeccionHorarioProgramado workers={workers} sesion={sesion} />
       <SeccionComisiones workers={workers} sesion={sesion} />
       <SeccionCalcular workers={workers} sesion={sesion} />
     </div>

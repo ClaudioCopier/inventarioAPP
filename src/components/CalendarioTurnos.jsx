@@ -49,10 +49,27 @@ function enSemanas(celdas) {
 // turno todavía abierto no tiene una jornada completa que contar todavía
 // -- devuelve null a propósito (se muestra en blanco, no en cero, para no
 // confundir "no trabajó" con "todavía no cerró el turno").
-function horasEfectivas(turno) {
-  if (!turno || turno.estado !== 'cerrado' || !turno.hora_entrada || !turno.hora_salida) return null
-  const entrada = new Date(turno.hora_entrada)
-  const salida = new Date(turno.hora_salida)
+//
+// `horario` (2026-09-05, pedido explícito del usuario: "los trabajadores
+// marcan a des-horas... llegan antes pero no empiezan a trabajar hasta la
+// hora real"): si el admin precargó un horario programado para este día
+// (`turnos_horario_programado`), las horas se cuentan contra ESE horario,
+// nunca contra el marcaje real -- mismo criterio que usa el motor de
+// comisiones (ver `comisiones.js::ventanasDeTurno`). El turno igual tiene
+// que estar `cerrado` (confirma que la persona vino) y la colación
+// marcada de verdad se sigue restando -- eso sí es un dato real, no algo
+// que dependa de a qué hora exacta se apretó el botón.
+function horasEfectivas(turno, horario) {
+  if (!turno || turno.estado !== 'cerrado') return null
+  let entrada, salida
+  if (horario) {
+    entrada = new Date(horario.hora_entrada_programada)
+    salida = new Date(horario.hora_salida_programada)
+  } else {
+    if (!turno.hora_entrada || !turno.hora_salida) return null
+    entrada = new Date(turno.hora_entrada)
+    salida = new Date(turno.hora_salida)
+  }
   let ms = salida - entrada
   if (turno.hora_almuerzo_inicio && turno.hora_almuerzo_fin) {
     const almInicio = new Date(turno.hora_almuerzo_inicio)
@@ -87,25 +104,45 @@ function formatoHoras(horas) {
 export default function CalendarioTurnos({ workerId, refrescarTick, mostrarHoras = false, permiteCrear = false, jornadaMaximaSemanal = JORNADA_MAXIMA_SEMANAL_DEFECTO, onEditarTurno, onCrearTurno }) {
   const [mes, setMes] = useState(() => inicioDeMes(new Date()))
   const [turnos, setTurnos] = useState(null)
+  const [horarios, setHorarios] = useState([])
 
   const cargar = useCallback(async () => {
     setTurnos(null)
     const celdas = construirGrid(mes)
+    const desde = fechaISO(celdas[0])
+    const hasta = fechaISO(celdas[celdas.length - 1])
     const { data, error } = await supabase
       .from('turnos')
       .select('*')
       .eq('worker_id', workerId)
-      .gte('fecha', fechaISO(celdas[0]))
-      .lte('fecha', fechaISO(celdas[celdas.length - 1]))
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
     if (error) { setTurnos([]); return }
     setTurnos(data || [])
-  }, [workerId, mes, refrescarTick])
+
+    // Horario programado (2026-09-05, ver horasEfectivas() más arriba) --
+    // solo hace falta para la vista admin, que es la única que muestra
+    // horas por día. Silencioso ante error (RLS/tabla nueva): sin datos
+    // acá, horasEfectivas() cae sola al marcaje real de siempre.
+    if (mostrarHoras) {
+      const { data: dataHorarios } = await supabase
+        .from('turnos_horario_programado')
+        .select('*')
+        .eq('worker_id', workerId)
+        .gte('fecha', desde)
+        .lte('fecha', hasta)
+      setHorarios(dataHorarios || [])
+    } else {
+      setHorarios([])
+    }
+  }, [workerId, mes, refrescarTick, mostrarHoras])
 
   useEffect(() => { cargar() }, [cargar])
 
   if (turnos === null) return <p>Cargando…</p>
 
   const porFecha = new Map(turnos.map((t) => [t.fecha, t]))
+  const porFechaHorario = new Map(horarios.map((h) => [h.fecha, h]))
   const semanas = enSemanas(construirGrid(mes))
   const hoyIso = fechaISO(new Date())
   const columnas = mostrarHoras ? 'repeat(7, 1fr) 76px' : 'repeat(7, 1fr)'
@@ -128,7 +165,7 @@ export default function CalendarioTurnos({ workerId, refrescarTick, mostrarHoras
 
         {semanas.map((semana, i) => {
           const totalSemana = mostrarHoras
-            ? semana.reduce((acc, d) => acc + (horasEfectivas(porFecha.get(fechaISO(d))) || 0), 0)
+            ? semana.reduce((acc, d) => acc + (horasEfectivas(porFecha.get(fechaISO(d)), porFechaHorario.get(fechaISO(d))) || 0), 0)
             : 0
           const excedeJornada = totalSemana > jornadaMaximaSemanal
 
@@ -139,7 +176,7 @@ export default function CalendarioTurnos({ workerId, refrescarTick, mostrarHoras
                 const enMes = d.getMonth() === mes.getMonth()
                 const turno = porFecha.get(iso)
                 const esHoy = iso === hoyIso
-                const horas = mostrarHoras ? horasEfectivas(turno) : null
+                const horas = mostrarHoras ? horasEfectivas(turno, porFechaHorario.get(iso)) : null
                 let fondo = 'transparent'
                 if (turno) fondo = turno.estado === 'cerrado' ? '#c7ecd1' : '#fbe6b0'
                 return (
