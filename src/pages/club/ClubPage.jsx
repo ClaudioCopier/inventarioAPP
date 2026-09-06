@@ -34,6 +34,25 @@ function FormularioSocio({ rutInicial, compraPendiente, sesion, onGuardado, onCa
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
 
+  // El "+56 " precargado se perdía si el navegador seleccionaba todo el
+  // campo al entrar con Tab (comportamiento normal del navegador) y la
+  // persona seguía tipeando -- el primer dígito reemplazaba el prefijo
+  // entero (bug real reportado). Se reconstruye el prefijo en cada tecla
+  // en vez de confiar en que el usuario nunca lo borre sin querer: no
+  // importa qué haya reemplazado el navegador, el valor final siempre
+  // vuelve a empezar con "+56 ".
+  function alTipearTelefono(valorCrudo) {
+    const resto = valorCrudo.startsWith('+56 ') ? valorCrudo.slice(4) : valorCrudo.replace(/^\+?56\s*/, '')
+    setTelefono('+56 ' + resto)
+  }
+
+  // Además, mover el cursor al final apenas entra el foco (Tab o click) --
+  // así ni siquiera llega a verse el prefijo seleccionado por un instante.
+  function alEnfocarTelefono(e) {
+    const largo = e.target.value.length
+    setTimeout(() => e.target.setSelectionRange(largo, largo), 0)
+  }
+
   async function guardar() {
     const normalizado = normalizarRut(rut)
     if (!normalizado) { setError('El RUT no es válido -- revisá el dígito verificador.'); return }
@@ -104,7 +123,10 @@ function FormularioSocio({ rutInicial, compraPendiente, sesion, onGuardado, onCa
         </div>
         <div className="field">
           <label>Teléfono</label>
-          <input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="+56 9 1234 5678" autoComplete="off" />
+          <input
+            type="tel" value={telefono} onChange={(e) => alTipearTelefono(e.target.value)} onFocus={alEnfocarTelefono}
+            placeholder="+56 9 1234 5678" autoComplete="off"
+          />
         </div>
         <div className="field">
           <label>Email</label>
