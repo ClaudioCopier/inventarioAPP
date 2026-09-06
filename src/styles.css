@@ -96,7 +96,7 @@ p { margin: 0 0 16px; color: var(--text-muted); line-height: 1.5; font-weight: 5
 }
 .field { margin-bottom: 20px; }
 .field label { display: block; font-size: 13px; font-weight: 600; color: var(--text-main); margin-bottom: 10px; }
-.field input[type="text"], .field input[type="password"], .field select {
+.field input[type="text"], .field input[type="password"], .field input[type="email"], .field input[type="tel"], .field input[type="number"], .field select {
   width: 100%; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   font-size: 16px; background: var(--bg-app); color: var(--text-main); transition: all 0.2s; font-family: inherit;
 }

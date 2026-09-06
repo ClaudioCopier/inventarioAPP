@@ -26,7 +26,9 @@ function formatoFecha(iso) {
 function FormularioSocio({ rutInicial, compraPendiente, sesion, onGuardado, onCancelar }) {
   const [rut, setRut] = useState(rutInicial || '')
   const [nombre, setNombre] = useState('')
-  const [telefono, setTelefono] = useState('')
+  // "+56 " precargado (pedido explícito del usuario) -- el cajero solo
+  // tipea el número, sin tener que acordarse del código de país cada vez.
+  const [telefono, setTelefono] = useState('+56 ')
   const [email, setEmail] = useState('')
   const [fechaNacimiento, setFechaNacimiento] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -39,12 +41,16 @@ function FormularioSocio({ rutInicial, compraPendiente, sesion, onGuardado, onCa
     setError('')
     setGuardando(true)
     const ahora = new Date().toISOString()
+    // "+56 " sin ningún número atrás no es un teléfono real -- queda null,
+    // no un dato basura.
+    const telefonoLimpio = telefono.trim()
+    const telefonoFinal = /^\+56\s*$/.test(telefonoLimpio) ? null : telefonoLimpio || null
     const { data: nuevo, error: errInsert } = await supabase
       .from('club_socios')
       .insert({
         rut: normalizado,
         nombre: nombre.trim(),
-        telefono: telefono.trim() || null,
+        telefono: telefonoFinal,
         email: email.trim() || null,
         fecha_nacimiento: fechaNacimiento || null,
         creado_por: sesion.nombre,
@@ -89,7 +95,7 @@ function FormularioSocio({ rutInicial, compraPendiente, sesion, onGuardado, onCa
           <label>RUT</label>
           <input
             type="text" value={rut} onChange={(e) => setRut(formatearRutMientrasTipea(e.target.value))}
-            placeholder="12.345.678-9" disabled={!!rutInicial}
+            placeholder="18756847-1" disabled={!!rutInicial} autoComplete="off"
           />
         </div>
         <div className="field" style={{ minWidth: 200 }}>
@@ -98,11 +104,11 @@ function FormularioSocio({ rutInicial, compraPendiente, sesion, onGuardado, onCa
         </div>
         <div className="field">
           <label>Teléfono</label>
-          <input type="text" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="+56 9…" />
+          <input type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="+56 9 1234 5678" autoComplete="off" />
         </div>
         <div className="field">
           <label>Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
         </div>
         <div className="field">
           <label>Fecha de nacimiento</label>
@@ -293,12 +299,15 @@ function PantallaClub() {
 
       <div className="card">
         <p className="hint" style={{ marginTop: 0 }}>Buscar socio por RUT</p>
-        <div className="row-inline" style={{ gap: 8 }}>
-          <input
-            type="text" value={busqueda} onChange={(e) => setBusqueda(formatearRutMientrasTipea(e.target.value))}
-            placeholder="12.345.678-9" style={{ maxWidth: 200 }}
-            onKeyDown={(e) => { if (e.key === 'Enter') buscar() }}
-          />
+        <div className="row-inline" style={{ gap: 8, alignItems: 'flex-end' }}>
+          <div className="field" style={{ maxWidth: 200, marginBottom: 0 }}>
+            <label htmlFor="busqueda-rut">RUT</label>
+            <input
+              id="busqueda-rut" type="text" value={busqueda} onChange={(e) => setBusqueda(formatearRutMientrasTipea(e.target.value))}
+              placeholder="18756847-1" autoComplete="off"
+              onKeyDown={(e) => { if (e.key === 'Enter') buscar() }}
+            />
+          </div>
           <button className="btn btn-primary" onClick={buscar} disabled={buscando}>{buscando ? 'Buscando…' : 'Buscar'}</button>
         </div>
         {mensaje && <p className="error-text" style={{ marginTop: 8 }}>{mensaje}</p>}

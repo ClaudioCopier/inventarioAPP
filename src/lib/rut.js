@@ -48,14 +48,13 @@ export function normalizarRut(rut) {
   return validarRut(rut) ? formatearRut(rut) : null
 }
 
-// Autoformato mientras se tipea (mismo espíritu que CampoFecha/CampoHora):
-// va agregando puntos y guión a medida que se escriben dígitos, sin exigir
-// que el usuario los tipee a mano. "187568471" -> "18.756.847-1".
+// Autoformato mientras se tipea (mismo espíritu que CampoFecha/CampoHora,
+// pedido explícito del usuario: sin puntos, solo el guión --
+// "187568471" -> "18756847-1", mismo formato canónico que ya usa
+// normalizarRut()/club_socios.rut, para no mostrar un formato en pantalla
+// distinto del que después queda guardado).
 export function formatearRutMientrasTipea(valorCrudo) {
   const limpio = limpiarRut(valorCrudo).slice(0, 9) // 8 dígitos + dv, tope razonable
   if (limpio.length <= 1) return limpio
-  const cuerpo = limpio.slice(0, -1)
-  const dv = limpio.slice(-1)
-  const cuerpoConPuntos = cuerpo.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-  return `${cuerpoConPuntos}-${dv}`
+  return `${limpio.slice(0, -1)}-${limpio.slice(-1)}`
 }
