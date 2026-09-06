@@ -53,29 +53,34 @@ function enSemanas(celdas) {
 // `horario` (2026-09-05, pedido explícito del usuario: "los trabajadores
 // marcan a des-horas... llegan antes pero no empiezan a trabajar hasta la
 // hora real"): si el admin precargó un horario programado para este día
-// (`turnos_horario_programado`), las horas se cuentan contra ESE horario,
-// nunca contra el marcaje real -- mismo criterio que usa el motor de
-// comisiones (ver `comisiones.js::ventanasDeTurno`). El turno igual tiene
-// que estar `cerrado` (confirma que la persona vino) y la colación
-// marcada de verdad se sigue restando -- eso sí es un dato real, no algo
-// que dependa de a qué hora exacta se apretó el botón.
+// (`turnos_horario_programado`, con su propia colación programada -- ver
+// FormularioHorarioDia en AdminPage.jsx), las horas se cuentan contra ESE
+// horario completo (entrada/colación/salida programados), nunca contra el
+// marcaje real -- mismo criterio que usa el motor de comisiones (ver
+// `comisiones.js::ventanasDeTurno`). El turno igual tiene que estar
+// `cerrado` (confirma que la persona vino). Sin horario programado para
+// el día, cae al marcaje real de siempre (entrada/colación/salida reales).
 function horasEfectivas(turno, horario) {
   if (!turno || turno.estado !== 'cerrado') return null
-  let entrada, salida
+  let entrada, salida, almInicio = null, almFin = null
   if (horario) {
     entrada = new Date(horario.hora_entrada_programada)
     salida = new Date(horario.hora_salida_programada)
+    if (horario.hora_almuerzo_inicio_programada && horario.hora_almuerzo_fin_programada) {
+      almInicio = new Date(horario.hora_almuerzo_inicio_programada)
+      almFin = new Date(horario.hora_almuerzo_fin_programada)
+    }
   } else {
     if (!turno.hora_entrada || !turno.hora_salida) return null
     entrada = new Date(turno.hora_entrada)
     salida = new Date(turno.hora_salida)
+    if (turno.hora_almuerzo_inicio && turno.hora_almuerzo_fin) {
+      almInicio = new Date(turno.hora_almuerzo_inicio)
+      almFin = new Date(turno.hora_almuerzo_fin)
+    }
   }
   let ms = salida - entrada
-  if (turno.hora_almuerzo_inicio && turno.hora_almuerzo_fin) {
-    const almInicio = new Date(turno.hora_almuerzo_inicio)
-    const almFin = new Date(turno.hora_almuerzo_fin)
-    if (almFin > almInicio) ms -= (almFin - almInicio)
-  }
+  if (almInicio && almFin && almFin > almInicio) ms -= (almFin - almInicio)
   return Math.max(0, ms / 3600000) // horas en decimal
 }
 

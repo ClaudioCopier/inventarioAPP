@@ -480,144 +480,182 @@ function SeccionHorasContrato({ workers, onGuardado }) {
   )
 }
 
-function inicioDeSemana(d) {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  const dia = (x.getDay() + 6) % 7 // lunes = 0
-  x.setDate(x.getDate() - dia)
-  return x
-}
-function sumarDias(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 function fechaISOLocal(d) {
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
-const DIAS_SEMANA_LARGO = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+function sumarDias(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+function inicioDeMesLocal(d) { return new Date(d.getFullYear(), d.getMonth(), 1) }
+function sumarMesesLocal(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, 1) }
+// Mismo armado de grilla (6 semanas, lunes primero) que
+// CalendarioTurnos.jsx -- duplicado acá a propósito, chico y puro, no vale
+// la pena exportarlo solo para esto.
+function construirGridMes(mes) {
+  const primero = inicioDeMesLocal(mes)
+  const diaSemana = (primero.getDay() + 6) % 7
+  const inicio = new Date(primero)
+  inicio.setDate(inicio.getDate() - diaSemana)
+  const celdas = []
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(inicio)
+    d.setDate(d.getDate() + i)
+    celdas.push(d)
+  }
+  return celdas
+}
+function enSemanasMes(celdas) {
+  const semanas = []
+  for (let i = 0; i < celdas.length; i += 7) semanas.push(celdas.slice(i, i + 7))
+  return semanas
+}
+const DIAS_SEMANA_CORTO = ['lu', 'ma', 'mi', 'ju', 'vi', 'sá', 'do']
+const MESES_LARGO = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
-// Horario programado semanal (2026-09-05, pedido explícito del usuario:
-// "los trabajadores marcan a des-horas... llegan antes pero no empiezan a
-// trabajar hasta la hora real"). El admin precarga, semana a semana, la
-// hora de entrada/salida ESPERADA de cada trabajador para cada día -- eso
-// es lo que usa el cálculo de comisión y de horas contra el contrato,
-// nunca el marcaje real (ver ventanasDeTurno()/horasEfectivas()). El
-// marcaje real sigue siendo el registro de presencia/asistencia de
-// siempre, solo deja de mover el número.
-//
-// "Replicar semana anterior" (pedido explícito del usuario) solo llena el
-// formulario en pantalla con los horarios de la semana pasada -- no guarda
-// nada solo -- para poder revisar/ajustar un día puntual (ej. alguien pide
-// el día libre) antes de confirmar con "Guardar semana".
-function SeccionHorarioProgramado({ workers, sesion }) {
-  const [workerId, setWorkerId] = useState('')
-  const [inicioSemanaMs, setInicioSemanaMs] = useState(() => inicioDeSemana(new Date()).getTime())
-  const [filas, setFilas] = useState(null) // null = sin trabajador elegido o cargando
+function fechaCortaLocal(iso) {
+  const d = new Date(iso + 'T00:00:00')
+  return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })
+}
+function fechaLargaLocal(iso) {
+  const d = new Date(iso + 'T00:00:00')
+  const texto = d.toLocaleDateString('es-CL', { weekday: 'long', day: '2-digit', month: '2-digit' })
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
+}
+function formatoHoraCorta(iso) {
+  return new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+}
+
+// Formulario de un día de horario programado -- mismos 4 campos y el
+// mismo avance automático de foco (useAvanceHoras.js) que
+// FormularioTurno/FormularioTurnoNuevo usan para el marcaje real (2026-09-05,
+// pedido explícito del usuario: "en el día que se escoge agendar tiene que
+// salir entrada almuerzo salida... además de los atajos que ya hemos
+// creado" -- no reinventar un flujo de carga distinto al que ya conocen).
+function FormularioHorarioDia({ workerId, fecha, horario, sesion, onGuardado, onCancelar }) {
+  const [horaEntrada, setHoraEntrada] = useState(horario?.hora_entrada_programada || '')
+  const [horaAlmuerzoInicio, setHoraAlmuerzoInicio] = useState(horario?.hora_almuerzo_inicio_programada || '')
+  const [horaAlmuerzoFin, setHoraAlmuerzoFin] = useState(horario?.hora_almuerzo_fin_programada || '')
+  const [horaSalida, setHoraSalida] = useState(horario?.hora_salida_programada || '')
   const [guardando, setGuardando] = useState(false)
-  const [mensaje, setMensaje] = useState('')
-  const [mensajeEsError, setMensajeEsError] = useState(false)
+  const [error, setError] = useState('')
+  const avance = useAvanceHoras({ setHoraAlmuerzoInicio, setHoraAlmuerzoFin })
 
-  const dias = Array.from({ length: 7 }, (_, i) => sumarDias(new Date(inicioSemanaMs), i))
+  async function guardar() {
+    if (!horaEntrada || !horaSalida) { setError('Completá entrada y salida.'); return }
+    setError('')
+    setGuardando(true)
+    const ahora = new Date().toISOString()
+    const { error: errUpsert } = await supabase.from('turnos_horario_programado').upsert(
+      {
+        worker_id: workerId, fecha,
+        hora_entrada_programada: horaEntrada,
+        hora_almuerzo_inicio_programada: horaAlmuerzoInicio || null,
+        hora_almuerzo_fin_programada: horaAlmuerzoFin || null,
+        hora_salida_programada: horaSalida,
+        creado_por: sesion.nombre, actualizado_por: sesion.nombre, actualizado_en: ahora,
+      },
+      { onConflict: 'worker_id,fecha' }
+    )
+    setGuardando(false)
+    if (errUpsert) { setError('No se pudo guardar: ' + errUpsert.message); return }
+    onGuardado()
+  }
 
-  const cargar = useCallback(async () => {
-    setMensaje('')
-    if (!workerId) { setFilas(null); return }
-    setFilas(null)
-    const desde = fechaISOLocal(dias[0])
-    const hasta = fechaISOLocal(dias[6])
-    const { data, error } = await supabase
+  async function borrar() {
+    if (!horario?.id) { onCancelar(); return }
+    setGuardando(true)
+    const { error: errDelete } = await supabase.from('turnos_horario_programado').delete().eq('id', horario.id)
+    setGuardando(false)
+    if (errDelete) { setError('No se pudo borrar: ' + errDelete.message); return }
+    onGuardado()
+  }
+
+  // Conveniencia (pedido explícito del usuario para no cargar todo de
+  // cero cada semana): trae el horario de exactamente 7 días antes (mismo
+  // día de la semana) y lo traslada a esta fecha -- solo llena el
+  // formulario en memoria, todavía hace falta "Guardar" para confirmar.
+  async function copiarDeHaceUnaSemana() {
+    const fechaAnterior = fechaISOLocal(sumarDias(new Date(fecha + 'T00:00:00'), -7))
+    const { data, error: errBuscar } = await supabase
       .from('turnos_horario_programado')
       .select('*')
       .eq('worker_id', workerId)
-      .gte('fecha', desde)
-      .lte('fecha', hasta)
-    if (error) { setMensaje('No se pudo cargar: ' + error.message); setMensajeEsError(true); setFilas([]); return }
-    const porFecha = new Map((data || []).map((h) => [h.fecha, h]))
-    setFilas(
-      dias.map((d) => {
-        const iso = fechaISOLocal(d)
-        const h = porFecha.get(iso)
-        return { fecha: iso, id: h?.id || null, horaEntrada: h?.hora_entrada_programada || '', horaSalida: h?.hora_salida_programada || '' }
-      })
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workerId, inicioSemanaMs])
+      .eq('fecha', fechaAnterior)
+      .maybeSingle()
+    if (errBuscar) { setError('No se pudo traer la semana pasada: ' + errBuscar.message); return }
+    if (!data) { setError(`No hay horario cargado para el ${fechaCortaLocal(fechaAnterior)} (hace 7 días) para copiar.`); return }
+    setError('')
+    const trasladar = (iso) => {
+      if (!iso) return ''
+      const origen = new Date(iso)
+      const destino = new Date(fecha + 'T00:00:00')
+      destino.setHours(origen.getHours(), origen.getMinutes(), 0, 0)
+      return destino.toISOString()
+    }
+    setHoraEntrada(trasladar(data.hora_entrada_programada))
+    setHoraAlmuerzoInicio(trasladar(data.hora_almuerzo_inicio_programada))
+    setHoraAlmuerzoFin(trasladar(data.hora_almuerzo_fin_programada))
+    setHoraSalida(trasladar(data.hora_salida_programada))
+  }
+
+  return (
+    <div className="card" style={{ background: 'var(--alert-warn-bg)' }}>
+      <div className="row-inline" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <p className="hint" style={{ margin: 0 }}>Horario programado — {fechaLargaLocal(fecha)}</p>
+        <button className="btn btn-ghost btn-sm" onClick={copiarDeHaceUnaSemana} disabled={guardando}>Copiar de hace 7 días</button>
+      </div>
+      <div className="row-inline" style={{ gap: 16, flexWrap: 'wrap' }}>
+        <CampoHora ref={avance.refEntrada} label="Entrada" value={horaEntrada} onChange={setHoraEntrada} fecha={fecha} onCompleto={avance.alCompletarEntrada} />
+        <CampoHora ref={avance.refAlmuerzoInicio} label="Almuerzo (salida)" value={horaAlmuerzoInicio} onChange={setHoraAlmuerzoInicio} fecha={fecha} onCompleto={avance.alCompletarAlmuerzoInicio} />
+        <CampoHora ref={avance.refAlmuerzoFin} label="Almuerzo (vuelta)" value={horaAlmuerzoFin} onChange={setHoraAlmuerzoFin} fecha={fecha} onCompleto={avance.alCompletarAlmuerzoFin} />
+        <CampoHora ref={avance.refSalida} label="Salida" value={horaSalida} onChange={setHoraSalida} fecha={fecha} onCompleto={avance.alCompletarSalida} />
+      </div>
+      <p className="hint" style={{ marginTop: 0 }}>Tip: escribiendo "0000" en "Almuerzo (salida)" se salta directo a Salida — queda sin colación programada.</p>
+      {error && <div className="error-text">{error}</div>}
+      <div className="row-inline" style={{ marginTop: 12 }}>
+        <button ref={avance.refGuardar} className="btn btn-primary" onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+        {horario && <button className="btn btn-ghost" onClick={borrar} disabled={guardando}>Borrar horario de este día</button>}
+        <button className="btn btn-ghost" onClick={onCancelar} disabled={guardando}>Cancelar</button>
+      </div>
+    </div>
+  )
+}
+
+// Horario programado (2026-09-05, pedido explícito del usuario: "los
+// trabajadores marcan a des-horas... llegan antes pero no empiezan a
+// trabajar hasta la hora real"). El admin ve la MISMA cuadrícula mensual
+// que usa para armar turnos reales (pedido explícito: "para armar los
+// turnos ver la cuadrícula del mes como antes") -- tocar un día abre
+// `FormularioHorarioDia` para cargar/corregir ese día puntual. Ese
+// horario, cuando existe, es lo que usan SIEMPRE el cálculo de
+// venta/comisión y las horas contra el contrato, nunca el marcaje real
+// (ver ventanasDeTurno()/horasEfectivas()). El marcaje real sigue siendo
+// el registro de presencia/asistencia de siempre, solo deja de mover el
+// número. Un día sin horario cargado cae al comportamiento de siempre
+// (marcaje real).
+function SeccionHorarioProgramado({ workers, sesion }) {
+  const [workerId, setWorkerId] = useState('')
+  const [mes, setMes] = useState(() => inicioDeMesLocal(new Date()))
+  const [horarios, setHorarios] = useState(null) // null = sin trabajador elegido o cargando
+  const [editandoFecha, setEditandoFecha] = useState(null)
+
+  const cargar = useCallback(async () => {
+    if (!workerId) { setHorarios(null); return }
+    setHorarios(null)
+    const celdas = construirGridMes(mes)
+    const { data } = await supabase
+      .from('turnos_horario_programado')
+      .select('*')
+      .eq('worker_id', workerId)
+      .gte('fecha', fechaISOLocal(celdas[0]))
+      .lte('fecha', fechaISOLocal(celdas[celdas.length - 1]))
+    setHorarios(data || [])
+  }, [workerId, mes])
 
   useEffect(() => { cargar() }, [cargar])
 
-  function actualizarFila(i, campo, valor) {
-    setFilas((prev) => prev.map((f, j) => (j === i ? { ...f, [campo]: valor } : f)))
-  }
-
-  // Solo llena el formulario en memoria con lo que había la semana pasada
-  // (mismo día de la semana, trasladado a la fecha de esta semana) --
-  // todavía hace falta "Guardar semana" para que quede.
-  async function replicarSemanaAnterior() {
-    const inicioAnterior = sumarDias(new Date(inicioSemanaMs), -7)
-    const desde = fechaISOLocal(inicioAnterior)
-    const hasta = fechaISOLocal(sumarDias(inicioAnterior, 6))
-    const { data, error } = await supabase
-      .from('turnos_horario_programado')
-      .select('fecha, hora_entrada_programada, hora_salida_programada')
-      .eq('worker_id', workerId)
-      .gte('fecha', desde)
-      .lte('fecha', hasta)
-    if (error) { setMensaje('No se pudo traer la semana anterior: ' + error.message); setMensajeEsError(true); return }
-    const porFecha = new Map((data || []).map((h) => [h.fecha, h]))
-    setFilas((prev) =>
-      prev.map((f, i) => {
-        const fechaAnterior = fechaISOLocal(sumarDias(inicioAnterior, i))
-        const h = porFecha.get(fechaAnterior)
-        if (!h) return f
-        const trasladar = (iso) => {
-          const origen = new Date(iso)
-          const destino = new Date(f.fecha + 'T00:00:00')
-          destino.setHours(origen.getHours(), origen.getMinutes(), 0, 0)
-          return destino.toISOString()
-        }
-        return { ...f, horaEntrada: trasladar(h.hora_entrada_programada), horaSalida: trasladar(h.hora_salida_programada) }
-      })
-    )
-    setMensaje('Semana anterior cargada acá abajo -- revisá y "Guardar semana" para confirmar.')
-    setMensajeEsError(false)
-  }
-
-  async function guardar() {
-    for (const f of filas) {
-      if ((f.horaEntrada && !f.horaSalida) || (!f.horaEntrada && f.horaSalida)) {
-        setMensaje(`Completá entrada y salida (o dejá las dos vacías) para ${fechaCorta(f.fecha)}.`)
-        setMensajeEsError(true)
-        return
-      }
-    }
-    setMensaje('')
-    setGuardando(true)
-    const ahora = new Date().toISOString()
-    const paraGuardar = filas.filter((f) => f.horaEntrada && f.horaSalida)
-    const paraBorrar = filas.filter((f) => f.id && !f.horaEntrada && !f.horaSalida)
-    if (paraGuardar.length) {
-      const { error } = await supabase.from('turnos_horario_programado').upsert(
-        paraGuardar.map((f) => ({
-          worker_id: workerId, fecha: f.fecha,
-          hora_entrada_programada: f.horaEntrada, hora_salida_programada: f.horaSalida,
-          creado_por: sesion.nombre, actualizado_por: sesion.nombre, actualizado_en: ahora,
-        })),
-        { onConflict: 'worker_id,fecha' }
-      )
-      if (error) { setMensaje('No se pudo guardar: ' + error.message); setMensajeEsError(true); setGuardando(false); return }
-    }
-    if (paraBorrar.length) {
-      const { error } = await supabase.from('turnos_horario_programado').delete().in('id', paraBorrar.map((f) => f.id))
-      if (error) { setMensaje('No se pudo guardar: ' + error.message); setMensajeEsError(true); setGuardando(false); return }
-    }
-    setGuardando(false)
-    setMensaje('Horario de la semana guardado.')
-    setMensajeEsError(false)
-    cargar()
-  }
-
-  function fechaCorta(iso) {
-    const d = new Date(iso + 'T00:00:00')
-    return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })
-  }
+  const porFecha = new Map((horarios || []).map((h) => [h.fecha, h]))
+  const semanas = enSemanasMes(construirGridMes(mes))
+  const hoyIso = fechaISOLocal(new Date())
 
   return (
     <div className="card">
@@ -630,49 +668,72 @@ function SeccionHorarioProgramado({ workers, sesion }) {
 
       <div className="field" style={{ minWidth: 200, marginBottom: 12 }}>
         <label>Trabajador</label>
-        <select value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+        <select value={workerId} onChange={(e) => { setWorkerId(e.target.value); setEditandoFecha(null) }}>
           <option value="">Elegir…</option>
           {workers.map((w) => <option key={w.id} value={w.id}>{w.nombre}</option>)}
         </select>
       </div>
 
-      {workerId && (
-        <>
-          <div className="row-inline" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-            <div className="row-inline" style={{ gap: 8, alignItems: 'center' }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setInicioSemanaMs((ms) => sumarDias(new Date(ms), -7).getTime())}>‹ Semana anterior</button>
-              <strong>Semana del {fechaCorta(fechaISOLocal(dias[0]))} al {fechaCorta(fechaISOLocal(dias[6]))}</strong>
-              <button className="btn btn-ghost btn-sm" onClick={() => setInicioSemanaMs((ms) => sumarDias(new Date(ms), 7).getTime())}>Semana siguiente ›</button>
-            </div>
-            <button className="btn btn-ghost btn-sm" onClick={replicarSemanaAnterior} disabled={!filas}>Replicar semana anterior</button>
+      {workerId && horarios === null && <p>Cargando…</p>}
+
+      {workerId && horarios !== null && !editandoFecha && (
+        <div style={{ maxWidth: 400 }}>
+          <div className="row-inline" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setMes((m) => sumarMesesLocal(m, -1))} aria-label="Mes anterior">‹</button>
+            <strong style={{ textTransform: 'capitalize' }}>{MESES_LARGO[mes.getMonth()]} de {mes.getFullYear()}</strong>
+            <button className="btn btn-ghost btn-sm" onClick={() => setMes((m) => sumarMesesLocal(m, 1))} aria-label="Mes siguiente">›</button>
           </div>
 
-          {mensaje && <p className={mensajeEsError ? 'error-text' : 'hint'}>{mensaje}</p>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+            {DIAS_SEMANA_CORTO.map((d) => (
+              <div key={d} style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)', padding: '2px 0' }}>{d}</div>
+            ))}
+          </div>
 
-          {!filas && <p>Cargando…</p>}
+          {semanas.map((semana, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+              {semana.map((d) => {
+                const iso = fechaISOLocal(d)
+                const enMes = d.getMonth() === mes.getMonth()
+                const h = porFecha.get(iso)
+                const esHoy = iso === hoyIso
+                return (
+                  <button
+                    key={iso}
+                    type="button"
+                    onClick={() => setEditandoFecha(iso)}
+                    title={h ? `Programado ${formatoHoraCorta(h.hora_entrada_programada)}-${formatoHoraCorta(h.hora_salida_programada)} -- tocar para corregir` : 'Sin horario -- tocar para cargar'}
+                    style={{
+                      aspectRatio: '1', border: esHoy ? '2px solid #2c5f4a' : '1px solid #ddd',
+                      borderRadius: 6, background: h ? '#c7dcec' : 'transparent', opacity: enMes ? 1 : 0.35,
+                      cursor: 'pointer', fontSize: 12, padding: 2,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                    }}
+                  >
+                    <span>{d.getDate()}</span>
+                    {h && <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{formatoHoraCorta(h.hora_entrada_programada)}-{formatoHoraCorta(h.hora_salida_programada)}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
 
-          {filas && (
-            <>
-              <div className="tabla-scroll">
-                <table className="table-preview">
-                  <thead><tr><th>Día</th><th>Entrada</th><th>Salida</th></tr></thead>
-                  <tbody>
-                    {filas.map((f, i) => (
-                      <tr key={f.fecha}>
-                        <td>{DIAS_SEMANA_LARGO[i]}<br /><span className="hint">{fechaCorta(f.fecha)}</span></td>
-                        <td><CampoHora value={f.horaEntrada} onChange={(v) => actualizarFila(i, 'horaEntrada', v)} fecha={f.fecha} /></td>
-                        <td><CampoHora value={f.horaSalida} onChange={(v) => actualizarFila(i, 'horaSalida', v)} fecha={f.fecha} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={guardar} disabled={guardando}>
-                {guardando ? 'Guardando…' : 'Guardar semana'}
-              </button>
-            </>
-          )}
-        </>
+          <p className="hint" style={{ marginTop: 12 }}>
+            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#c7dcec', borderRadius: 3, marginRight: 6, verticalAlign: 'middle' }} />
+            Con horario programado — tocá cualquier día para cargarlo o corregirlo.
+          </p>
+        </div>
+      )}
+
+      {workerId && editandoFecha && (
+        <FormularioHorarioDia
+          workerId={workerId}
+          fecha={editandoFecha}
+          horario={porFecha.get(editandoFecha) || null}
+          sesion={sesion}
+          onGuardado={() => { setEditandoFecha(null); cargar() }}
+          onCancelar={() => setEditandoFecha(null)}
+        />
       )}
     </div>
   )
